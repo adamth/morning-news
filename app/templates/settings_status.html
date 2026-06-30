@@ -26,11 +26,13 @@
 </div>
 {% endif %}
 
-<section class="section">
+<section class="section settings-form">
   {% for group_label, checks in report.groups %}
-  {% if not loop.first %}<hr class="form-divider" />{% endif %}
-  <div>
-    <h2 class="form-section-heading">{{ group_label }}</h2>
+  {% if not loop.first %}<hr class="settings-divider" />{% endif %}
+  <div class="settings-group">
+    <h2 class="settings-heading">
+      <span class="settings-heading-title">{{ group_label }}</span>
+    </h2>
     <ul class="status-list">
       {% for check in checks %}
       <li class="status-row">

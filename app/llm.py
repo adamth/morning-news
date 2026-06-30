@@ -1,4 +1,4 @@
-"""OpenRouter (OpenAI-compatible) client for summarization and script writing."""
+"""LLM client for summarization and script writing."""
 
 from __future__ import annotations
 
@@ -6,28 +6,19 @@ import json
 import logging
 from dataclasses import dataclass, field
 
-from openai import OpenAI
-
-from .config import config
+from .credentials import Credentials
+from .llm_providers import (
+    LlmProviderConfig,
+    LlmProviderError,
+    LlmProviderId,
+    resolve_provider_config,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class LLMError(RuntimeError):
     pass
-
-
-def _client() -> OpenAI:
-    if not config.openrouter_api_key:
-        raise LLMError("OPENROUTER_API_KEY is not configured")
-    return OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=config.openrouter_api_key,
-        default_headers={
-            "HTTP-Referer": config.base_url or "http://localhost",
-            "X-Title": "Morning News Podcast Generator",
-        },
-    )
 
 
 @dataclass
@@ -54,31 +45,49 @@ class EpisodeContent:
     used_message_ids: list[int] = field(default_factory=list)
 
 
-def summarize_article(text: str, target_chars: int, model: str) -> str:
+def _provider_config(
+    *,
+    credentials: Credentials,
+    llm_provider: str = "",
+    llm_model: str = "",
+) -> LlmProviderConfig:
+    try:
+        return resolve_provider_config(
+            credentials=credentials,
+            settings_provider=llm_provider,
+            settings_model=llm_model,
+        )
+    except LlmProviderError as error:
+        raise LLMError(str(error)) from error
+
+
+def summarize_article(
+    text: str,
+    target_chars: int,
+    *,
+    credentials: Credentials,
+    llm_provider: str = "",
+    llm_model: str = "",
+) -> str:
     """Condense a long article to roughly `target_chars` characters."""
 
     target_words = max(60, target_chars // 6)
-    client = _client()
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You compress news articles into tight, factual summaries that "
-                    "preserve the who/what/where/when. No preamble, no opinion."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Summarize the following article in about {target_words} words.\n\n{text}"
-                ),
-            },
-        ],
+    provider_config = _provider_config(
+        credentials=credentials,
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+    )
+    from .llm_providers import chat_completion
+
+    return chat_completion(
+        provider_config=provider_config,
+        system=(
+            "You compress news articles into tight, factual summaries that "
+            "preserve the who/what/where/when. No preamble, no opinion."
+        ),
+        user=f"Summarize the following article in about {target_words} words.\n\n{text}",
         temperature=0.2,
     )
-    return (response.choices[0].message.content or "").strip()
 
 
 def _build_generation_prompt(
@@ -184,7 +193,9 @@ Respond ONLY with a JSON object of this exact shape:
 
 def generate_episode(
     *,
-    model: str,
+    credentials: Credentials,
+    llm_provider: str = "",
+    llm_model: str = "",
     podcast_title: str,
     date_text: str,
     locality: str,
@@ -215,23 +226,23 @@ def generate_episode(
         articles=articles,
     )
 
-    client = _client()
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You write clear, natural spoken news scripts — factual but easy to follow, "
-                    "with brief transitions between sections. You always return valid JSON."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.5,
-        response_format={"type": "json_object"},
+    provider_config = _provider_config(
+        credentials=credentials,
+        llm_provider=llm_provider,
+        llm_model=llm_model,
     )
-    raw = response.choices[0].message.content or "{}"
+    from .llm_providers import chat_completion
+
+    raw = chat_completion(
+        provider_config=provider_config,
+        system=(
+            "You write clear, natural spoken news scripts — factual but easy to follow, "
+            "with brief transitions between sections. You always return valid JSON."
+        ),
+        user=prompt,
+        temperature=0.5,
+        json_mode=provider_config.provider is not LlmProviderId.anthropic,
+    )
     return _parse_episode_content(raw)
 
 

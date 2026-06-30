@@ -1,6 +1,7 @@
 (() => {
-  const modelInput = document.getElementById("openrouter_model");
-  const suggestionsEl = document.getElementById("openrouter-model-suggestions");
+  const modelInput = document.getElementById("llm_model");
+  const suggestionsEl = document.getElementById("llm-model-suggestions");
+  const providerSelect = document.getElementById("llm_provider");
 
   if (!modelInput || !modelInput.dataset.modelAutocomplete || !suggestionsEl) {
     return;
@@ -10,6 +11,9 @@
   let activeIndex = -1;
   let currentResults = [];
   let selectedModelId = modelInput.value.trim();
+
+  const currentProvider = () =>
+    providerSelect?.value || modelInput.dataset.llmProvider || "openrouter";
 
   const hideSuggestions = () => {
     suggestionsEl.hidden = true;
@@ -49,8 +53,9 @@
 
   const fetchSuggestions = async (query) => {
     try {
+      const provider = encodeURIComponent(currentProvider());
       const response = await fetch(
-        `/api/openrouter/models?q=${encodeURIComponent(query)}`,
+        `/api/llm/models?provider=${provider}&q=${encodeURIComponent(query)}`,
         { credentials: "same-origin", headers: { Accept: "application/json" } },
       );
       if (!response.ok) {
@@ -99,6 +104,12 @@
       element.classList.toggle("active", index === activeIndex);
     });
   };
+
+  providerSelect?.addEventListener("change", () => {
+    modelInput.dataset.llmProvider = providerSelect.value;
+    selectedModelId = "";
+    hideSuggestions();
+  });
 
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".location-field")?.contains(modelInput)) {

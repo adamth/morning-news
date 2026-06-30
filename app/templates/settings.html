@@ -4,306 +4,231 @@
 <header class="settings-header">
   <h1>Settings</h1>
   <p class="page-lead">
-    When your episode is built, where you live, and what everyone in the household hears. Changes on this tab apply to the whole show.
+    When your episode is built, where you live, and which stories to include. Changes on this tab apply to the whole show.
   </p>
 </header>
 
 {% include "partials/settings_tabs.html" %}
 
-<section class="section section-emphasis">
-  <form method="post" action="/settings">
-    <h2 class="form-section-heading">Schedule &amp; location</h2>
-    <div class="field-row">
-      <div>
-        <label for="schedule_time">Build time</label>
-        <input type="time" id="schedule_time" name="schedule_time" value="{{ '%02d:%02d' % (s.schedule_hour, s.schedule_minute) }}" />
-        <div class="field-hint">Morning News builds a new episode every day at this time.</div>
-      </div>
-      <div>
-        <label for="timezone">Time zone</label>
-        <input type="text" id="timezone" name="timezone" value="{{ s.timezone }}" placeholder="Australia/Brisbane" />
-        <div class="field-hint">{% if s.locality %}Used with your town for the daily schedule.{% else %}Fills in automatically when you choose your town below.{% endif %}</div>
-      </div>
-    </div>
-
-    <label for="address">Your town</label>
-    <div class="location-field">
-      <input
-        type="text"
-        id="address"
-        name="address"
-        value="{{ s.address }}"
-        data-initial-address="{{ s.address }}"
-        placeholder="Start typing, then pick from the list — e.g. Brisbane"
-        autocomplete="off"
-      />
-      <div id="location-suggestions" class="location-suggestions" hidden></div>
-    </div>
-    <input type="hidden" name="location_confirmed" id="location_confirmed" value="{{ '1' if s.latitude else '' }}" />
-    <input type="hidden" name="latitude" id="latitude" value="{{ s.latitude if s.latitude is not none else '' }}" />
-    <input type="hidden" name="longitude" id="longitude" value="{{ s.longitude if s.longitude is not none else '' }}" />
-    <input type="hidden" name="locality" id="locality" value="{{ s.locality }}" />
-    <input type="hidden" name="country_code" id="country_code" value="" />
-    <input type="hidden" name="admin1" id="admin1" value="{{ s.admin1 }}" />
-    <input type="hidden" name="country" id="country" value="{{ s.country }}" />
-    <input type="hidden" name="news_hl" id="news_hl" value="{{ s.news_hl }}" />
-    <input type="hidden" name="news_gl" id="news_gl" value="{{ s.news_gl }}" />
-    <input type="hidden" name="news_ceid" id="news_ceid" value="{{ s.news_ceid }}" />
-    <div class="field-hint" id="location-status">
-      {% if s.locality %}
-        Weather and local news will use {{ s.locality }} ({{ s.timezone }}).
-      {% else %}
-        Type a few letters, choose your town from the list, then save — typing alone is not enough.
-      {% endif %}
-    </div>
-
-    <label class="checkbox-inline">
-      <input type="checkbox" name="weather_enabled" value="1" {{ 'checked' if s.weather_enabled else '' }}>
-      Include tomorrow's weather in the episode
-    </label>
-
-    <div class="form-actions">
-      <button type="submit">Save schedule &amp; location</button>
-    </div>
-  </form>
-
-  <hr class="form-divider" />
-
-  <form method="post" action="/settings/calendar">
-    <h2 class="form-section-heading">Family calendar</h2>
-    <p class="field-hint">Optional — mention today's events from a shared calendar in the episode.</p>
-    <label for="calendar_url">Calendar link</label>
-    <input type="url" id="calendar_url" name="calendar_url" value="{{ s.calendar_url }}" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" />
-    <div class="field-hint">Paste a subscription link (often ends in <code class="code-inline">.ics</code>). In Google Calendar, open calendar settings → <strong>Integrate calendar</strong> → copy the secret address. In iCloud, use <strong>Share Calendar</strong> → <strong>Public Calendar</strong>.</div>
-    <div class="form-actions">
-      <button type="submit">Save calendar</button>
-    </div>
-  </form>
-
-  <hr class="form-divider" />
-
-  <div>
-    <h2 class="form-section-heading">
-      Stock watch
-      {% if watchlist %}<span class="badge">{{ watchlist|length }}</span>{% endif %}
-    </h2>
-    <p class="field-hint">Optional — a short overall read on how your holdings moved in the last 24 hours. No per-stock rundown.</p>
-    <form method="post" action="/settings/stocks">
-      <label class="checkbox-inline">
-        <input type="checkbox" name="stocks_enabled" value="1" {{ 'checked' if s.stocks_enabled else '' }}>
-        Include stock watch in the episode
-      </label>
-      <label class="checkbox-inline">
-        <input type="checkbox" name="stocks_mature_reactions" value="1" {{ 'checked' if s.stocks_mature_reactions else '' }}>
-        Allow 18+ reactions (profanity and adult humor in the market aside)
-      </label>
-      <div class="form-actions">
-        <button type="submit" class="btn btn-sm">Save stock settings</button>
-      </div>
-    </form>
-    <form id="add-watchlist-form" method="post" action="/watchlist" hidden></form>
-    <div class="data-table-wrap">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th scope="col">Ticker</th>
-            <th scope="col">Label</th>
-            <th scope="col" class="data-table-actions"><span class="sr-only">Actions</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% if watchlist %}
-          {% for item in watchlist %}
-          <tr>
-            <td><code class="code-inline">{{ item.symbol }}</code></td>
-            <td>{{ item.label or '—' }}</td>
-            <td class="data-table-actions">
-              <form method="post" action="/watchlist/{{ item.id }}/delete">
-                <button class="btn btn-danger btn-sm" type="submit">Remove</button>
-              </form>
-            </td>
-          </tr>
-          {% endfor %}
-          {% else %}
-          <tr class="data-table-empty">
-            <td colspan="3">No stocks yet — add a ticker below.</td>
-          </tr>
-          {% endif %}
-          <tr class="data-table-add-row">
-            <td>
-              <label class="sr-only" for="stock_symbol">Ticker</label>
-              <input type="text" id="stock_symbol" form="add-watchlist-form" name="symbol" placeholder="AAPL" required maxlength="12" />
-            </td>
-            <td>
-              <label class="sr-only" for="stock_label">Label</label>
-              <input type="text" id="stock_label" form="add-watchlist-form" name="label" placeholder="Optional label" />
-            </td>
-            <td class="data-table-actions">
-              <button type="submit" form="add-watchlist-form" class="btn btn-sm">Add</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="field-hint mt-2">Requires <code class="code-inline">FINNHUB_API_KEY</code> in your environment (free at <a href="https://finnhub.io" target="_blank" rel="noopener">finnhub.io</a>). Examples: AAPL, MSFT, TSLA, ^GSPC (S&amp;P 500), ^FTSE</div>
-  </div>
-
-  <hr class="form-divider" />
-
-  <div>
-    <h2 class="form-section-heading">
-      Topics to skip
-      {% if preferences %}
-      <span class="badge badge-pending">{{ preferences|length }}</span>
-      {% endif %}
-    </h2>
-    <p class="field-hint">Stories mainly about these subjects are left out of everyone's episode.</p>
-    <form method="post" action="/preferences" class="inline-form">
-      <div class="inline-form-grow">
-        <label for="exclude-topic">Topic to skip</label>
-        <input type="text" id="exclude-topic" name="topic" placeholder="e.g. politics, sports, crime" required />
-      </div>
-      <button type="submit" class="btn btn-sm">Add topic</button>
-    </form>
-    {% if preferences %}
-    <div class="mt-4 flex flex-wrap gap-x-6 gap-y-2">
-      {% for pref in preferences %}
-      <span class="chip">{{ pref.topic }}
-        <form method="post" action="/preferences/{{ pref.id }}/delete">
-          <button type="submit" aria-label="Remove {{ pref.topic }} from skip list">&times;</button>
-        </form>
-      </span>
-      {% endfor %}
-    </div>
-    {% else %}
-    <p class="mt-4 text-sm text-muted">Nothing skipped yet — add a topic above if you want the show to avoid certain subjects.</p>
-    {% endif %}
-  </div>
-
-  <hr class="form-divider" />
-
-  <div>
-    <h2 class="form-section-heading">
-      Intro music
-      {% if intro_exists %}<span class="badge badge-ready">On file</span>{% endif %}
-    </h2>
-    <p class="field-hint">Optional short clip before the narration each morning.</p>
-    <form method="post" action="/settings/intro" enctype="multipart/form-data">
-      <label class="checkbox-inline">
-        <input type="checkbox" name="intro_enabled" value="1" {{ 'checked' if s.intro_enabled else '' }}>
-        Play intro music before the narration
-      </label>
-      <label for="intro">Intro music file</label>
-      <input type="file" id="intro" name="intro" accept="audio/mpeg,.mp3" />
-      <div class="field-hint">MP3 format. Leave blank to keep your current file.</div>
-      <label for="intro_play_seconds">Full volume for (seconds)</label>
-      <input
-        type="number"
-        class="field-narrow"
-        id="intro_play_seconds"
-        name="intro_play_seconds"
-        value="{{ s.intro_play_seconds }}"
-        min="0"
-        step="0.5"
-      />
-      <p class="field-hint">Plays at full volume for this long, then fades under the voice{% if intro_duration %} — your file is {{ '%.0f'|format(intro_duration) }} seconds{% endif %}.</p>
-      <div class="form-actions">
-        <button type="submit">Save intro music</button>
-      </div>
-    </form>
-  </div>
-
-  <hr class="form-divider" />
-
-  <div>
-    <h2 class="form-section-heading">
-      Outro music
-      {% if outro_exists %}<span class="badge badge-ready">On file</span>{% endif %}
-    </h2>
-    <p class="field-hint">Optional short clip after the narration each morning.</p>
-    <form method="post" action="/settings/outro" enctype="multipart/form-data">
-      <label class="checkbox-inline">
-        <input type="checkbox" name="outro_enabled" value="1" {{ 'checked' if s.outro_enabled else '' }}>
-        Play outro music after the narration
-      </label>
-      <label for="outro">Outro music file</label>
-      <input type="file" id="outro" name="outro" accept="audio/mpeg,.mp3" />
-      <div class="field-hint">MP3 format. Leave blank to keep your current file.</div>
-      <label for="outro_play_seconds">Overlap with narration (seconds)</label>
-      <input
-        type="number"
-        class="field-narrow"
-        id="outro_play_seconds"
-        name="outro_play_seconds"
-        value="{{ s.outro_play_seconds }}"
-        min="0"
-        step="0.5"
-      />
-      <p class="field-hint">The outro starts this many seconds before the narration ends, then keeps playing on its own{% if outro_duration %} — your file is {{ '%.0f'|format(outro_duration) }} seconds{% endif %}.</p>
-      <div class="form-actions">
-        <button type="submit">Save outro music</button>
-      </div>
-    </form>
-  </div>
-
-  <hr class="form-divider" />
-
-  <div>
-    <h2 class="form-section-heading">
-      Extra news sources
-      {% if sources %}<span class="badge">{{ sources|length }}</span>{% endif %}
-    </h2>
-    <p class="field-hint">Headlines for your area are already included. Add another news feed only if you want more sources.</p>
-    <form method="post" action="/sources" class="inline-form">
-      <div class="inline-form-grow">
-        <label for="source_url">News feed link</label>
-        <input type="url" id="source_url" name="url" placeholder="https://www.example.com/news/rss.xml" required />
-      </div>
-      <button type="submit" class="btn btn-sm">Add feed</button>
-    </form>
-    {% if sources %}
-    <ul class="mt-2">
-      {% for source in sources %}
-      <li class="list-row">
-        <div>
-          <div>{{ source.name or source.url }}</div>
-          <div class="list-meta">{{ source.url }}</div>
+<section class="section">
+  <form method="post" action="/settings" class="settings-form">
+    <div class="settings-group">
+      <h2 class="settings-heading">
+        <span class="settings-heading-title">Schedule &amp; location</span>
+      </h2>
+      <div class="settings-fields">
+        <div class="field-row">
+          <div>
+            <label for="schedule_time">Build time</label>
+            <input type="time" id="schedule_time" name="schedule_time" value="{{ '%02d:%02d' % (s.schedule_hour, s.schedule_minute) }}" />
+            <div class="field-hint">Morning News builds a new episode every day at this time.</div>
+          </div>
+          <div>
+            <label for="timezone">Time zone</label>
+            <input type="text" id="timezone" name="timezone" value="{{ s.timezone }}" placeholder="Australia/Brisbane" />
+            <div class="field-hint">{% if s.locality %}Used with your town for the daily schedule.{% else %}Fills in automatically when you choose your town below.{% endif %}</div>
+          </div>
         </div>
-        <form method="post" action="/sources/{{ source.id }}/delete">
-          <button class="btn btn-danger btn-sm" type="submit">Delete feed</button>
-        </form>
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p class="mt-4 text-sm text-muted">No extra feeds — local headlines from your town are enough for most households.</p>
-    {% endif %}
+
+        <div class="settings-field">
+          <label for="address">Your town</label>
+          <div class="location-field">
+            <input
+              type="text"
+              id="address"
+              name="address"
+              value="{{ s.address }}"
+              data-initial-address="{{ s.address }}"
+              placeholder="Start typing, then pick from the list — e.g. Brisbane"
+              autocomplete="off"
+            />
+            <div id="location-suggestions" class="location-suggestions" hidden></div>
+          </div>
+          <input type="hidden" name="location_confirmed" id="location_confirmed" value="{{ '1' if s.latitude else '' }}" />
+          <input type="hidden" name="latitude" id="latitude" value="{{ s.latitude if s.latitude is not none else '' }}" />
+          <input type="hidden" name="longitude" id="longitude" value="{{ s.longitude if s.longitude is not none else '' }}" />
+          <input type="hidden" name="locality" id="locality" value="{{ s.locality }}" />
+          <input type="hidden" name="country_code" id="country_code" value="" />
+          <input type="hidden" name="admin1" id="admin1" value="{{ s.admin1 }}" />
+          <input type="hidden" name="country" id="country" value="{{ s.country }}" />
+          <input type="hidden" name="news_hl" id="news_hl" value="{{ s.news_hl }}" />
+          <input type="hidden" name="news_gl" id="news_gl" value="{{ s.news_gl }}" />
+          <input type="hidden" name="news_ceid" id="news_ceid" value="{{ s.news_ceid }}" />
+          <div class="field-hint" id="location-status">
+            {% if s.locality %}
+              Weather and local news will use {{ s.locality }} ({{ s.timezone }}).
+            {% else %}
+              Type a few letters, choose your town from the list, then save — typing alone is not enough.
+            {% endif %}
+          </div>
+        </div>
+
+        <label class="checkbox-inline">
+          <input type="checkbox" name="weather_enabled" value="1" {{ 'checked' if s.weather_enabled else '' }}>
+          Include tomorrow's weather in the episode
+        </label>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit">Save schedule &amp; location</button>
+      </div>
+    </div>
+  </form>
+
+  <hr class="settings-divider" />
+
+  <form method="post" action="/settings/calendar" class="settings-form">
+    <div class="settings-group">
+      <h2 class="settings-heading">
+        <span class="settings-heading-title">Family calendar</span>
+        <span class="settings-tag settings-tag-optional">Optional</span>
+      </h2>
+      <p class="field-hint settings-group-lead">Mention today's events from a shared calendar in the episode.</p>
+      <div class="settings-fields">
+        <div class="settings-field">
+          <label for="calendar_url">Calendar link</label>
+          <input type="url" id="calendar_url" name="calendar_url" value="{{ s.calendar_url }}" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" />
+          <div class="field-hint">Paste a subscription link (often ends in <code class="code-inline">.ics</code>). In Google Calendar, open calendar settings → <strong>Integrate calendar</strong> → copy the secret address. In iCloud, use <strong>Share Calendar</strong> → <strong>Public Calendar</strong>.</div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit">Save calendar</button>
+      </div>
+    </div>
+  </form>
+
+  <hr class="settings-divider" />
+
+  <div class="settings-form">
+    <div class="settings-group">
+      <h2 class="settings-heading">
+        <span class="settings-heading-title">Stock watch</span>
+        {% if watchlist %}<span class="settings-tag settings-tag-count">{{ watchlist|length }}</span>{% endif %}
+        <span class="settings-tag settings-tag-optional">Optional</span>
+      </h2>
+      <p class="field-hint settings-group-lead">A short overall read on how your holdings moved in the last 24 hours. No per-stock rundown.</p>
+      <form method="post" action="/settings/stocks">
+        <div class="settings-fields">
+          <label class="checkbox-inline">
+            <input type="checkbox" name="stocks_enabled" value="1" {{ 'checked' if s.stocks_enabled else '' }}>
+            Include stock watch in the episode
+          </label>
+          <label class="checkbox-inline">
+            <input type="checkbox" name="stocks_mature_reactions" value="1" {{ 'checked' if s.stocks_mature_reactions else '' }}>
+            Allow 18+ reactions (profanity and adult humor in the market aside)
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-sm">Save stock settings</button>
+        </div>
+      </form>
+      <form id="add-watchlist-form" method="post" action="/watchlist" hidden></form>
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">Ticker</th>
+              <th scope="col">Label</th>
+              <th scope="col" class="data-table-actions"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if watchlist %}
+            {% for item in watchlist %}
+            <tr>
+              <td><code class="code-inline">{{ item.symbol }}</code></td>
+              <td>{{ item.label or '—' }}</td>
+              <td class="data-table-actions">
+                <form method="post" action="/watchlist/{{ item.id }}/delete">
+                  <button class="btn btn-danger btn-sm" type="submit">Remove</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+            {% else %}
+            <tr class="data-table-empty">
+              <td colspan="3">No stocks yet — add a ticker below.</td>
+            </tr>
+            {% endif %}
+            <tr class="data-table-add-row">
+              <td>
+                <label class="sr-only" for="stock_symbol">Ticker</label>
+                <input type="text" id="stock_symbol" form="add-watchlist-form" name="symbol" placeholder="AAPL" required maxlength="12" />
+              </td>
+              <td>
+                <label class="sr-only" for="stock_label">Label</label>
+                <input type="text" id="stock_label" form="add-watchlist-form" name="label" placeholder="Optional label" />
+              </td>
+              <td class="data-table-actions">
+                <button type="submit" form="add-watchlist-form" class="btn btn-sm">Add</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="field-hint">Requires a Finnhub API key on <a href="/settings/connections">Connections</a> (free at <a href="https://finnhub.io" target="_blank" rel="noopener">finnhub.io</a>). Examples: AAPL, MSFT, TSLA, ^GSPC (S&amp;P 500), ^FTSE</div>
+    </div>
   </div>
 
-  <hr class="form-divider" />
+  <hr class="settings-divider" />
 
-  <div>
-    <h2 class="form-section-heading">
-      Who can sign in
-      <span class="text-sm font-normal text-muted">{{ users|length }} {% if users|length == 1 %}person{% else %}people{% endif %}</span>
-    </h2>
-    <p class="field-hint">Each person has their own login to queue private messages. Schedule and location above apply to everyone.</p>
-    <ul>
-      {% for u in users %}
-      <li class="list-row"><div>{{ u.username }}</div><div class="list-meta">Added {{ u.created_at.strftime('%b %d, %Y') }}</div></li>
-      {% endfor %}
-    </ul>
-    <form method="post" action="/users" class="inline-form">
-      <div>
-        <label for="new_username">Username</label>
-        <input type="text" id="new_username" name="username" required autocomplete="username" />
+  <form method="post" action="/settings/story-mix" class="settings-form">
+    <div class="settings-group">
+      <h2 class="settings-heading">
+        <span class="settings-heading-title">Story mix</span>
+      </h2>
+      <p class="field-hint settings-group-lead">Tick topics you'd like the show to favour. These are gentle preferences, not rules — to block a subject entirely, use <a href="#topics-to-skip">Topics to skip</a> below.</p>
+      <div class="category-grid">
+        {% for category in news_categories %}
+        <label class="category-option">
+          <input
+            type="checkbox"
+            name="preferred_categories"
+            value="{{ category.id }}"
+            {{ 'checked' if category.id in selected_categories else '' }}
+          />
+          <span>{{ category.label }}</span>
+        </label>
+        {% endfor %}
       </div>
-      <div>
-        <label for="new_password">Password</label>
-        <input type="password" id="new_password" name="password" required autocomplete="new-password" />
+      <div class="form-actions">
+        <button type="submit">Save story mix</button>
       </div>
-      <button type="submit" class="btn btn-sm">Add person</button>
-    </form>
+    </div>
+  </form>
+
+  <hr class="settings-divider" />
+
+  <div class="settings-form">
+    <div class="settings-group" id="topics-to-skip">
+      <h2 class="settings-heading">
+        <span class="settings-heading-title">Topics to skip</span>
+        {% if preferences %}
+        <span class="settings-tag settings-tag-count">{{ preferences|length }}</span>
+        {% endif %}
+      </h2>
+      <p class="field-hint settings-group-lead">Stories mainly about these subjects are left out of everyone's episode.</p>
+      <form method="post" action="/preferences" class="inline-form">
+        <div class="inline-form-grow">
+          <label for="exclude-topic">Topic to skip</label>
+          <input type="text" id="exclude-topic" name="topic" placeholder="e.g. politics, sports, crime" required />
+        </div>
+        <button type="submit" class="btn btn-sm">Add topic</button>
+      </form>
+      {% if preferences %}
+      <div class="flex flex-wrap gap-x-6 gap-y-2">
+        {% for pref in preferences %}
+        <span class="chip">{{ pref.topic }}
+          <form method="post" action="/preferences/{{ pref.id }}/delete">
+            <button type="submit" aria-label="Remove {{ pref.topic }} from skip list">&times;</button>
+          </form>
+        </span>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-sm text-muted">Nothing skipped yet — add a topic above if you want the show to avoid certain subjects.</p>
+      {% endif %}
+    </div>
   </div>
 </section>
 {% endblock %}

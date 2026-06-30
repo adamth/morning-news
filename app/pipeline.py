@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 from . import llm
 from .audio import assemble_episode, probe_duration, speed_up_narration
 from .config import config
+from .credentials import Credentials, load_credentials
 from .db import (
     Episode,
     EpisodeArticle,
@@ -43,6 +44,7 @@ def generate_episode(session: Session) -> Episode:
     """Run the full generation flow and return the finished Episode."""
 
     settings = get_settings(session)
+    credentials = load_credentials(settings)
     timezone = _safe_zone(settings.timezone)
     now_local = datetime.now(timezone)
 
@@ -56,7 +58,7 @@ def generate_episode(session: Session) -> Episode:
     session.refresh(episode)
 
     try:
-        _run(session, settings, episode, timezone, now_local)
+        _run(session, settings, credentials, episode, timezone, now_local)
     except Exception as error:
         logger.exception("Episode generation failed")
         episode.status = EpisodeStatus.failed
@@ -76,6 +78,7 @@ def generate_episode(session: Session) -> Episode:
 def _run(
     session: Session,
     settings: Settings,
+    credentials: Credentials,
     episode: Episode,
     timezone: ZoneInfo,
     now_local: datetime,
@@ -84,7 +87,7 @@ def _run(
 
     # 1. Gather news.
     sources = _news_sources(session, settings)
-    articles = news.gather_articles(sources)
+    articles = news.gather_articles(sources, zyte_api_key=credentials.zyte_api_key)
     logger.info("Gathered %d candidate articles", len(articles))
 
     # 2. Weather.
@@ -107,6 +110,7 @@ def _run(
         if symbols:
             summary = stocks.get_market_summary(
                 symbols,
+                credentials=credentials,
                 mature_reactions=settings.stocks_mature_reactions,
             )
             if summary:
@@ -123,7 +127,7 @@ def _run(
     ).all()
 
     # 5. Summarize over-long articles to control token cost.
-    _summarize_long_articles(articles, settings)
+    _summarize_long_articles(articles, settings, credentials)
 
     article_inputs = [
         llm.ArticleInput(
@@ -141,7 +145,9 @@ def _run(
 
     # 6. Generate the script.
     content = llm.generate_episode(
-        model=settings.openrouter_model,
+        credentials=credentials,
+        llm_provider=settings.llm_provider,
+        llm_model=settings.llm_model,
         podcast_title=settings.podcast_title,
         date_text=date_text,
         locality=settings.locality,
@@ -181,7 +187,7 @@ def _run(
     # 9. Synthesize speech.
     voice_path = config.episodes_dir / f"{episode.id}.voice.mp3"
     final_path = config.episodes_dir / f"{episode.id}.mp3"
-    provider = get_provider()
+    provider = get_provider(credentials=credentials)
     resolved_voice = resolve_episode_voice(
         provider,
         voice_id=settings.voice_id,
@@ -270,13 +276,23 @@ def _excluded_topics(session: Session) -> list[str]:
     return [pref.topic for pref in session.exec(select(Preference)).all()]
 
 
-def _summarize_long_articles(articles: list[news.Article], settings: Settings) -> None:
+def _summarize_long_articles(
+    articles: list[news.Article],
+    settings: Settings,
+    credentials: Credentials,
+) -> None:
     limit = settings.max_article_length
     for article in articles:
         body = article.body
         if body and len(body) > limit:
             try:
-                article.body = llm.summarize_article(body, limit, settings.openrouter_model)
+                article.body = llm.summarize_article(
+                    body,
+                    limit,
+                    credentials=credentials,
+                    llm_provider=settings.llm_provider,
+                    llm_model=settings.llm_model,
+                )
             except llm.LLMError as error:
                 logger.warning("Summarization failed, truncating instead: %s", error)
                 article.body = body[:limit]

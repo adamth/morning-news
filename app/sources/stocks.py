@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 import httpx
 
-from ..config import config
+from ..credentials import Credentials
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +113,7 @@ def normalize_symbol(raw: str) -> str | None:
 def get_market_summary(
     symbols: list[str],
     *,
+    credentials: Credentials,
     mature_reactions: bool = False,
 ) -> MarketSummary | None:
     """Fetch 24-hour change for each symbol and return an aggregate briefing."""
@@ -128,11 +129,11 @@ def get_market_summary(
     if not unique_symbols:
         return None
 
-    snapshots = _fetch_quotes(unique_symbols)
+    snapshots = _fetch_quotes(unique_symbols, credentials=credentials)
     if not snapshots:
-        if not config.finnhub_api_key:
+        if not credentials.finnhub_api_key:
             logger.warning(
-                "Stock quotes unavailable — set FINNHUB_API_KEY in your environment "
+                "Stock quotes unavailable — add a Finnhub API key in Settings → Connections "
                 "(free at https://finnhub.io). Yahoo Finance fallback is often rate-limited."
             )
         return None
@@ -140,12 +141,12 @@ def get_market_summary(
     return _build_summary(snapshots, mature_reactions=mature_reactions)
 
 
-def _fetch_quotes(symbols: list[str]) -> list[QuoteSnapshot]:
+def _fetch_quotes(symbols: list[str], *, credentials: Credentials) -> list[QuoteSnapshot]:
     snapshots: list[QuoteSnapshot] = []
     yahoo_client: httpx.Client | None = None
     yahoo_crumb: str | None = None
 
-    if not config.finnhub_api_key:
+    if not credentials.finnhub_api_key:
         yahoo_client, yahoo_crumb = _open_yahoo_session()
 
     headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
@@ -153,8 +154,8 @@ def _fetch_quotes(symbols: list[str]) -> list[QuoteSnapshot]:
     with httpx.Client(headers=headers, follow_redirects=True, timeout=HTTP_TIMEOUT) as client:
         for symbol in symbols:
             snapshot = None
-            if config.finnhub_api_key:
-                snapshot = _fetch_finnhub_quote(client, symbol)
+            if credentials.finnhub_api_key:
+                snapshot = _fetch_finnhub_quote(client, symbol, credentials.finnhub_api_key)
             if snapshot is None and yahoo_client is not None:
                 snapshot = _fetch_yahoo_quote(yahoo_client, symbol, yahoo_crumb)
             if snapshot is not None:
@@ -166,8 +167,11 @@ def _fetch_quotes(symbols: list[str]) -> list[QuoteSnapshot]:
     return snapshots
 
 
-def _fetch_finnhub_quote(client: httpx.Client, symbol: str) -> QuoteSnapshot | None:
-    api_key = config.finnhub_api_key
+def _fetch_finnhub_quote(
+    client: httpx.Client,
+    symbol: str,
+    api_key: str,
+) -> QuoteSnapshot | None:
     if not api_key:
         return None
 

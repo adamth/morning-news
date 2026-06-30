@@ -27,8 +27,14 @@ services:
       # API keys.
       ELEVENLABS_API_KEY: "${ELEVENLABS_API_KEY:-}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_BASE_URL: "${LLM_BASE_URL:-}"
+      LLM_PROVIDER: "${LLM_PROVIDER:-}"
       ZYTE_API_KEY: "${ZYTE_API_KEY:-}"
       NEWSDATA_API_KEY: "${NEWSDATA_API_KEY:-}"
+      FINNHUB_API_KEY: "${FINNHUB_API_KEY:-}"
       # First-run login (only used when no users exist yet).
       BOOTSTRAP_USERNAME: "${BOOTSTRAP_USERNAME:-}"
       BOOTSTRAP_PASSWORD: "${BOOTSTRAP_PASSWORD:-}"

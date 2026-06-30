@@ -99,7 +99,19 @@ class Settings(SQLModel, table=True):
     outro_play_seconds: float = 2.0  # seconds of outro mixed with the end of narration
 
     # LLM
-    openrouter_model: str = "openai/gpt-4o-mini"
+    llm_provider: str = ""  # openrouter | openai | anthropic | custom; empty = auto-detect
+    llm_model: str = "openai/gpt-4o-mini"
+    llm_base_url: str = ""  # custom OpenAI-compatible endpoint
+
+    # API credentials (Fernet-encrypted; enter via Settings → Connections)
+    elevenlabs_api_key_enc: str = ""
+    openrouter_api_key_enc: str = ""
+    openai_api_key_enc: str = ""
+    anthropic_api_key_enc: str = ""
+    llm_api_key_enc: str = ""
+    zyte_api_key_enc: str = ""
+    finnhub_api_key_enc: str = ""
+    newsdata_api_key_enc: str = ""
 
     # Podcast metadata
     podcast_title: str = "Morning News"
@@ -178,6 +190,18 @@ class EpisodeArticle(SQLModel, table=True):
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _migrate_schema()
+    _import_env_secrets()
+
+
+def _import_env_secrets() -> None:
+    from .credentials import import_env_secrets_if_empty
+
+    with Session(engine) as session:
+        settings = get_settings(session)
+        if import_env_secrets_if_empty(settings):
+            settings.updated_at = utcnow()
+            session.add(settings)
+            session.commit()
 
 
 def _migrate_schema() -> None:
@@ -198,6 +222,18 @@ def _migrate_schema() -> None:
         "ALTER TABLE settings ADD COLUMN voice_language TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN voice_accent TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN voice_randomize INTEGER DEFAULT 0",
+        "ALTER TABLE settings ADD COLUMN llm_provider TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN llm_model TEXT DEFAULT ''",
+        "UPDATE settings SET llm_model = openrouter_model WHERE (llm_model IS NULL OR llm_model = '') AND openrouter_model IS NOT NULL AND openrouter_model != ''",
+        "ALTER TABLE settings ADD COLUMN llm_base_url TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN elevenlabs_api_key_enc TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN openrouter_api_key_enc TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN openai_api_key_enc TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN anthropic_api_key_enc TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN llm_api_key_enc TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN zyte_api_key_enc TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN finnhub_api_key_enc TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN newsdata_api_key_enc TEXT DEFAULT ''",
     )
     with engine.connect() as connection:
         for statement in migrations:

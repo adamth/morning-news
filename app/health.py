@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import shutil
 import time
@@ -14,8 +13,16 @@ from typing import Callable
 import httpx
 from sqlmodel import Session, select, text
 
-from .config import config, env_str
+from .config import config
+from .credentials import Credentials, fingerprint_secret, load_credentials
 from .db import HealthCheckCache, Settings, Source, WatchlistItem, engine, get_settings, utcnow
+from .llm_providers import (
+    LlmProviderId,
+    PROVIDER_LABELS,
+    provider_setup_hint,
+    resolve_api_key,
+    resolve_provider,
+)
 from .sources.calendar import _try_http_ics
 from .sources.news import build_google_news_url
 from .sources import stocks
@@ -25,11 +32,10 @@ logger = logging.getLogger(__name__)
 _HTTP_TIMEOUT = 12.0
 _PASS_CACHE_TTL = timedelta(days=7)
 
-_API_KEY_CHECKS: dict[str, str] = {
-    "elevenlabs": "ELEVENLABS_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-    "zyte": "ZYTE_API_KEY",
-    "finnhub": "FINNHUB_API_KEY",
+_CREDENTIAL_CHECKS: dict[str, Callable[[Credentials], str | None]] = {
+    "elevenlabs": lambda credentials: credentials.elevenlabs_api_key,
+    "zyte": lambda credentials: credentials.zyte_api_key,
+    "finnhub": lambda credentials: credentials.finnhub_api_key,
 }
 
 _stored_report: HealthReport | None = None
@@ -108,44 +114,51 @@ def _check_is_issue(check: HealthCheck) -> bool:
     return False
 
 
-def _key_fingerprint(env_name: str) -> str:
-    value = env_str(env_name)
-    if not value:
+def _credential_fingerprint(credentials: Credentials, check_id: str) -> str:
+    getter = _CREDENTIAL_CHECKS.get(check_id)
+    if getter is None:
         return ""
-    return hashlib.sha256(value.encode()).hexdigest()[:16]
+    return fingerprint_secret(getter(credentials))
 
 
 def _format_cached_detail(detail: str, checked_at: datetime) -> str:
     return f"{detail} (last verified {checked_at.strftime('%b %d')})"
 
 
-def _get_valid_pass_cache(session: Session, check_id: str) -> HealthCheckCache | None:
-    env_name = _API_KEY_CHECKS.get(check_id)
-    if env_name is None:
+def _get_valid_pass_cache(
+    session: Session,
+    check_id: str,
+    credentials: Credentials,
+) -> HealthCheckCache | None:
+    if check_id not in _CREDENTIAL_CHECKS:
         return None
 
     row = session.get(HealthCheckCache, check_id)
     if row is None or row.status != CheckStatus.ok.value:
         return None
-    if row.key_fingerprint != _key_fingerprint(env_name):
+    if row.key_fingerprint != _credential_fingerprint(credentials, check_id):
         return None
     if utcnow() - row.checked_at > _PASS_CACHE_TTL:
         return None
     return row
 
 
-def _update_pass_cache(session: Session, check_id: str, check: HealthCheck) -> None:
-    if check_id not in _API_KEY_CHECKS:
+def _update_pass_cache(
+    session: Session,
+    check_id: str,
+    check: HealthCheck,
+    credentials: Credentials,
+) -> None:
+    if check_id not in _CREDENTIAL_CHECKS:
         return
 
     existing = session.get(HealthCheckCache, check_id)
     if check.status == CheckStatus.ok:
-        env_name = _API_KEY_CHECKS[check_id]
         row = existing or HealthCheckCache(check_id=check_id)
         row.status = check.status.value
         row.detail = check.detail
         row.checked_at = utcnow()
-        row.key_fingerprint = _key_fingerprint(env_name)
+        row.key_fingerprint = _credential_fingerprint(credentials, check_id)
         session.add(row)
     elif existing is not None:
         session.delete(existing)
@@ -159,10 +172,11 @@ def _run_cached_api_key_check(
     name: str,
     description: str,
     required: bool,
+    credentials: Credentials,
     probe: Callable[[], tuple[CheckStatus, str]],
 ) -> HealthCheck:
     if not force_all:
-        cached = _get_valid_pass_cache(session, check_id)
+        cached = _get_valid_pass_cache(session, check_id, credentials)
         if cached is not None:
             return HealthCheck(
                 id=check_id,
@@ -182,7 +196,7 @@ def _run_cached_api_key_check(
         required=required,
         probe=probe,
     )
-    _update_pass_cache(session, check_id, check)
+    _update_pass_cache(session, check_id, check, credentials)
     return check
 
 
@@ -235,20 +249,18 @@ def _probe_ffmpeg() -> tuple[CheckStatus, str]:
     return CheckStatus.ok, "Audio tools are available"
 
 
-def _probe_elevenlabs() -> tuple[CheckStatus, str]:
-    api_key = env_str("ELEVENLABS_API_KEY")
+def _probe_elevenlabs(credentials: Credentials) -> tuple[CheckStatus, str]:
+    api_key = credentials.elevenlabs_api_key
     if not api_key:
-        return CheckStatus.unconfigured, "Add ELEVENLABS_API_KEY to your server environment (.env or container settings)"
+        return CheckStatus.unconfigured, "Add your ElevenLabs API key in Settings → Connections"
     try:
-        # Use /v1/voices, not /v1/user — restricted keys scoped to TTS return 401 on user endpoints
-        # but work fine for voice listing and synthesis (what Morning News actually needs).
         response = httpx.get(
             "https://api.elevenlabs.io/v1/voices",
             headers={"xi-api-key": api_key},
             timeout=_HTTP_TIMEOUT,
         )
         if response.status_code == 401:
-            return CheckStatus.error, "Narration API key was rejected — check ELEVENLABS_API_KEY"
+            return CheckStatus.error, "Narration API key was rejected — update it in Settings → Connections"
         response.raise_for_status()
         voice_count = len(response.json().get("voices") or [])
     except httpx.HTTPError as error:
@@ -258,31 +270,83 @@ def _probe_elevenlabs() -> tuple[CheckStatus, str]:
     return CheckStatus.ok, f"Connected — {voice_count} voices available"
 
 
-def _probe_openrouter() -> tuple[CheckStatus, str]:
-    api_key = env_str("OPENROUTER_API_KEY")
+def _probe_llm(settings: Settings, credentials: Credentials) -> tuple[CheckStatus, str]:
+    provider = resolve_provider(
+        credentials=credentials,
+        settings_provider=settings.llm_provider,
+        settings_model=settings.llm_model,
+    )
+    api_key = resolve_api_key(provider, credentials)
+    label = PROVIDER_LABELS[provider]
+
     if not api_key:
-        return CheckStatus.unconfigured, "Add OPENROUTER_API_KEY to your server environment (.env or container settings)"
+        if provider is LlmProviderId.custom:
+            return CheckStatus.unconfigured, provider_setup_hint(provider)
+        return CheckStatus.unconfigured, provider_setup_hint(provider)
+
     try:
-        response = httpx.get(
-            "https://openrouter.ai/api/v1/models",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=_HTTP_TIMEOUT,
-        )
-        if response.status_code == 401:
-            return CheckStatus.error, "Script-writing API key was rejected — check OPENROUTER_API_KEY"
-        response.raise_for_status()
-        models = response.json().get("data") or []
-        if not models:
-            return CheckStatus.error, "Connected but no writing models were returned"
+        if provider is LlmProviderId.anthropic:
+            response = httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": settings.llm_model or "claude-3-5-haiku-20241022",
+                    "max_tokens": 16,
+                    "messages": [{"role": "user", "content": "Reply with OK."}],
+                },
+                timeout=_HTTP_TIMEOUT,
+            )
+            if response.status_code == 401:
+                return CheckStatus.error, f"Script-writing API key was rejected — update it in Settings → Connections"
+            if response.status_code >= 400:
+                return CheckStatus.error, f"Anthropic returned HTTP {response.status_code}"
+        elif provider is LlmProviderId.custom:
+            base_url = (credentials.llm_base_url or "").rstrip("/")
+            response = httpx.get(
+                f"{base_url}/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=_HTTP_TIMEOUT,
+            )
+            if response.status_code == 401:
+                return CheckStatus.error, "Script-writing API key was rejected — update it in Settings → Connections"
+            if response.status_code >= 400:
+                return CheckStatus.error, f"Custom LLM endpoint returned HTTP {response.status_code}"
+        elif provider is LlmProviderId.openai:
+            response = httpx.get(
+                "https://api.openai.com/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=_HTTP_TIMEOUT,
+            )
+            if response.status_code == 401:
+                return CheckStatus.error, "Script-writing API key was rejected — update it in Settings → Connections"
+            response.raise_for_status()
+        else:
+            response = httpx.get(
+                "https://openrouter.ai/api/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=_HTTP_TIMEOUT,
+            )
+            if response.status_code == 401:
+                return CheckStatus.error, "Script-writing API key was rejected — update it in Settings → Connections"
+            response.raise_for_status()
+            models = response.json().get("data") or []
+            if not models:
+                return CheckStatus.error, "Connected but no writing models were returned"
     except httpx.HTTPError as error:
         return CheckStatus.error, f"Could not reach the script-writing service: {error}"
     except ValueError as error:
         return CheckStatus.error, f"Unexpected response from script-writing service: {error}"
-    return CheckStatus.ok, "Connected and ready"
+
+    model_hint = settings.llm_model or "(default model)"
+    return CheckStatus.ok, f"{label} connected — using {model_hint}"
 
 
-def _probe_zyte() -> tuple[CheckStatus, str]:
-    api_key = env_str("ZYTE_API_KEY")
+def _probe_zyte(credentials: Credentials) -> tuple[CheckStatus, str]:
+    api_key = credentials.zyte_api_key
     if not api_key:
         return (
             CheckStatus.skipped,
@@ -304,15 +368,15 @@ def _probe_zyte() -> tuple[CheckStatus, str]:
     return CheckStatus.ok, "Connected and authenticated"
 
 
-def _probe_newsdata() -> tuple[CheckStatus, str]:
-    if not env_str("NEWSDATA_API_KEY"):
+def _probe_newsdata(credentials: Credentials) -> tuple[CheckStatus, str]:
+    if not credentials.newsdata_api_key:
         return (
             CheckStatus.skipped,
             "Optional — not used by this app yet",
         )
     return (
         CheckStatus.skipped,
-        "Key is set but NewsData.io is not wired into the pipeline yet",
+        "Key is saved but NewsData.io is not wired into the pipeline yet",
     )
 
 
@@ -400,12 +464,12 @@ def _probe_calendar(settings: Settings) -> tuple[CheckStatus, str]:
     )
 
 
-def _probe_finnhub() -> tuple[CheckStatus, str]:
-    api_key = env_str("FINNHUB_API_KEY")
+def _probe_finnhub(credentials: Credentials) -> tuple[CheckStatus, str]:
+    api_key = credentials.finnhub_api_key
     if not api_key:
         return (
             CheckStatus.unconfigured,
-            "Required for stock watch — free key at finnhub.io",
+            "Add a Finnhub API key in Settings → Connections (free at finnhub.io)",
         )
     try:
         response = httpx.get(
@@ -422,7 +486,7 @@ def _probe_finnhub() -> tuple[CheckStatus, str]:
     return CheckStatus.ok, "Connected and returning quotes"
 
 
-def _probe_stocks(session: Session, settings: Settings) -> tuple[CheckStatus, str]:
+def _probe_stocks(session: Session, settings: Settings, credentials: Credentials) -> tuple[CheckStatus, str]:
     if not settings.stocks_enabled:
         return CheckStatus.skipped, "Stock watch is turned off on Settings → Basic"
     items = session.exec(
@@ -430,12 +494,12 @@ def _probe_stocks(session: Session, settings: Settings) -> tuple[CheckStatus, st
     ).all()
     if not items:
         return CheckStatus.skipped, "Add tickers on Settings → Basic to enable stock checks"
-    if not env_str("FINNHUB_API_KEY"):
+    if not credentials.finnhub_api_key:
         return (
             CheckStatus.error,
-            "Set FINNHUB_API_KEY in your environment — Yahoo Finance is often rate-limited",
+            "Add a Finnhub API key in Settings → Connections — Yahoo Finance is often rate-limited",
         )
-    summary = stocks.get_market_summary([items[0].symbol])
+    summary = stocks.get_market_summary([items[0].symbol], credentials=credentials)
     if summary is None:
         return CheckStatus.error, "Could not fetch a quote — check FINNHUB_API_KEY and your tickers"
     return CheckStatus.ok, f"Quotes are reachable (checked {items[0].symbol})"
@@ -495,6 +559,7 @@ def run_health_checks(session: Session, *, force_all: bool = False) -> HealthRep
     """Full dependency checks for the settings status page."""
 
     settings = get_settings(session)
+    credentials = load_credentials(settings)
     sources = session.exec(
         select(Source).where(Source.enabled == True).order_by(Source.created_at)  # noqa: E712
     ).all()
@@ -508,16 +573,16 @@ def run_health_checks(session: Session, *, force_all: bool = False) -> HealthRep
             name="Episode narration",
             description="Turns the written script into spoken audio",
             required=True,
-            probe=_probe_elevenlabs,
+            credentials=credentials,
+            probe=lambda: _probe_elevenlabs(credentials),
         ),
-        _run_cached_api_key_check(
-            session,
-            force_all=force_all,
-            check_id="openrouter",
+        _run_check(
+            check_id="llm",
             name="Script writing",
             description="Chooses stories and writes each morning's script",
+            group="api_keys",
             required=True,
-            probe=_probe_openrouter,
+            probe=lambda: _probe_llm(settings, credentials),
         ),
         _run_cached_api_key_check(
             session,
@@ -526,7 +591,8 @@ def run_health_checks(session: Session, *, force_all: bool = False) -> HealthRep
             name="Hard-to-read articles",
             description="Optional backup when a news site blocks normal fetching",
             required=False,
-            probe=_probe_zyte,
+            credentials=credentials,
+            probe=lambda: _probe_zyte(credentials),
         ),
         _run_cached_api_key_check(
             session,
@@ -535,7 +601,8 @@ def run_health_checks(session: Session, *, force_all: bool = False) -> HealthRep
             name="Stock quotes",
             description="24-hour price changes for your watchlist",
             required=False,
-            probe=_probe_finnhub,
+            credentials=credentials,
+            probe=lambda: _probe_finnhub(credentials),
         ),
         _run_check(
             check_id="newsdata",
@@ -543,7 +610,7 @@ def run_health_checks(session: Session, *, force_all: bool = False) -> HealthRep
             description="Optional — not used by Morning News yet",
             group="api_keys",
             required=False,
-            probe=_probe_newsdata,
+            probe=lambda: _probe_newsdata(credentials),
         ),
         _run_check(
             check_id="location",
@@ -591,7 +658,7 @@ def run_health_checks(session: Session, *, force_all: bool = False) -> HealthRep
             description="24-hour performance for your watchlist",
             group="services",
             required=False,
-            probe=lambda: _probe_stocks(session, settings),
+            probe=lambda: _probe_stocks(session, settings, credentials),
         ),
     ]
 

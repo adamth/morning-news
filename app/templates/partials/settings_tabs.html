@@ -10,6 +10,11 @@
     {% if settings_tab == 'advanced' %}aria-current="page"{% endif %}
   >Advanced</a>
   <a
+    href="/settings/connections"
+    class="settings-tab{% if settings_tab == 'connections' %} is-active{% endif %}"
+    {% if settings_tab == 'connections' %}aria-current="page"{% endif %}
+  >Connections</a>
+  <a
     href="/settings/status"
     class="settings-tab{% if settings_tab == 'status' %} is-active{% endif %}"
     {% if settings_tab == 'status' %}aria-current="page"{% endif %}

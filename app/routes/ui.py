@@ -25,9 +25,17 @@ from ..db import (
     get_settings,
     utcnow,
 )
-from ..health import get_health_report
+from ..credentials import apply_secret_updates, load_credentials
 from ..news_categories import NEWS_CATEGORIES, parse_selected, serialize_selected
-from ..openrouter_models import list_chat_models
+from ..llm_models import list_chat_models
+from ..llm_providers import (
+    DEFAULT_LLM_MODELS,
+    LlmProviderId,
+    PROVIDER_LABELS,
+    available_providers,
+    normalize_model,
+    resolve_provider,
+)
 from ..pipeline import generate_episode_background
 from ..scheduler import reschedule
 from ..sources import weather
@@ -177,16 +185,8 @@ def settings_page(
     session: Session = Depends(get_session),
 ):
     settings = get_settings(session)
-    sources = session.exec(select(Source).order_by(Source.created_at)).all()
     preferences = session.exec(select(Preference).order_by(Preference.created_at)).all()
     watchlist = session.exec(select(WatchlistItem).order_by(WatchlistItem.created_at)).all()
-    users = session.exec(select(User).order_by(User.created_at)).all()
-    intro_duration = (
-        probe_duration(config.intro_path) if config.intro_path.exists() else None
-    )
-    outro_duration = (
-        probe_duration(config.outro_path) if config.outro_path.exists() else None
-    )
     return templates.TemplateResponse(
         request,
         "settings.html",
@@ -195,16 +195,82 @@ def settings_page(
             "active": "settings",
             "settings_tab": "basic",
             "s": settings,
-            "sources": sources,
             "preferences": preferences,
             "watchlist": watchlist,
-            "users": users,
-            "intro_exists": config.intro_path.exists(),
-            "intro_duration": intro_duration,
-            "outro_exists": config.outro_path.exists(),
-            "outro_duration": outro_duration,
+            "news_categories": NEWS_CATEGORIES,
+            "selected_categories": set(parse_selected(settings.preferred_categories)),
         },
     )
+
+
+@router.get("/settings/connections", response_class=HTMLResponse)
+def connections_settings_page(
+    request: Request,
+    user: User = Depends(web_user),
+    session: Session = Depends(get_session),
+):
+    settings = get_settings(session)
+    credentials = load_credentials(settings)
+    return templates.TemplateResponse(
+        request,
+        "settings_connections.html",
+        {
+            "user": user,
+            "active": "settings",
+            "settings_tab": "connections",
+            "s": settings,
+            "credentials": credentials,
+        },
+    )
+
+
+@router.post("/settings/connections")
+def save_connections_settings(
+    user: User = Depends(web_user),
+    session: Session = Depends(get_session),
+    elevenlabs_api_key: str = Form(""),
+    openrouter_api_key: str = Form(""),
+    openai_api_key: str = Form(""),
+    anthropic_api_key: str = Form(""),
+    llm_api_key: str = Form(""),
+    llm_base_url: str = Form(""),
+    zyte_api_key: str = Form(""),
+    finnhub_api_key: str = Form(""),
+    newsdata_api_key: str = Form(""),
+    clear_elevenlabs: str | None = Form(None),
+    clear_openrouter: str | None = Form(None),
+    clear_openai: str | None = Form(None),
+    clear_anthropic: str | None = Form(None),
+    clear_llm: str | None = Form(None),
+    clear_zyte: str | None = Form(None),
+    clear_finnhub: str | None = Form(None),
+    clear_newsdata: str | None = Form(None),
+):
+    settings = get_settings(session)
+    apply_secret_updates(
+        settings,
+        elevenlabs_api_key=elevenlabs_api_key,
+        openrouter_api_key=openrouter_api_key,
+        openai_api_key=openai_api_key,
+        anthropic_api_key=anthropic_api_key,
+        llm_api_key=llm_api_key,
+        llm_base_url=llm_base_url,
+        zyte_api_key=zyte_api_key,
+        finnhub_api_key=finnhub_api_key,
+        newsdata_api_key=newsdata_api_key,
+        clear_elevenlabs=clear_elevenlabs is not None,
+        clear_openrouter=clear_openrouter is not None,
+        clear_openai=clear_openai is not None,
+        clear_anthropic=clear_anthropic is not None,
+        clear_llm=clear_llm is not None,
+        clear_zyte=clear_zyte is not None,
+        clear_finnhub=clear_finnhub is not None,
+        clear_newsdata=clear_newsdata is not None,
+    )
+    settings.updated_at = utcnow()
+    session.add(settings)
+    session.commit()
+    return RedirectResponse("/settings/connections?msg=Keys+saved.+Check+System+status+to+confirm+everything+connects.", status_code=303)
 
 
 @router.get("/settings/status", response_class=HTMLResponse)
@@ -241,9 +307,24 @@ def advanced_settings_page(
     session: Session = Depends(get_session),
 ):
     settings = get_settings(session)
-    voices = _safe_list_voices(settings)
-    voice_accents = _safe_list_accents(settings)
-    openrouter_models = list_chat_models()
+    credentials = load_credentials(settings)
+    sources = session.exec(select(Source).order_by(Source.created_at)).all()
+    users = session.exec(select(User).order_by(User.created_at)).all()
+    intro_duration = (
+        probe_duration(config.intro_path) if config.intro_path.exists() else None
+    )
+    outro_duration = (
+        probe_duration(config.outro_path) if config.outro_path.exists() else None
+    )
+    voices = _safe_list_voices(settings, credentials)
+    voice_accents = _safe_list_accents(settings, credentials)
+    active_provider = resolve_provider(
+        credentials=credentials,
+        settings_provider=settings.llm_provider,
+        settings_model=settings.llm_model,
+    )
+    llm_models = list_chat_models(active_provider, credentials=credentials)
+    configured_providers = available_providers(credentials)
     return templates.TemplateResponse(
         request,
         "settings_advanced.html",
@@ -255,9 +336,23 @@ def advanced_settings_page(
             "voices": voices,
             "voice_accents": voice_accents,
             "voice_languages": VOICE_LANGUAGE_OPTIONS,
-            "openrouter_models": openrouter_models,
-            "news_categories": NEWS_CATEGORIES,
-            "selected_categories": set(parse_selected(settings.preferred_categories)),
+            "llm_models": llm_models,
+            "llm_provider": active_provider.value,
+            "llm_provider_options": [
+                {
+                    "id": provider.value,
+                    "label": PROVIDER_LABELS[provider],
+                    "configured": provider in configured_providers,
+                    "default_model": DEFAULT_LLM_MODELS[provider],
+                }
+                for provider in LlmProviderId
+            ],
+            "sources": sources,
+            "users": users,
+            "intro_exists": config.intro_path.exists(),
+            "intro_duration": intro_duration,
+            "outro_exists": config.outro_path.exists(),
+            "outro_duration": outro_duration,
         },
     )
 
@@ -290,13 +385,22 @@ def location_search(
     return JSONResponse(payload)
 
 
-@router.get("/api/openrouter/models")
-def openrouter_model_search(
+@router.get("/api/llm/models")
+def llm_model_search(
+    provider: str = Query("openrouter"),
     q: str = Query(""),
     user: User = Depends(web_user),
+    session: Session = Depends(get_session),
 ):
+    settings = get_settings(session)
+    credentials = load_credentials(settings)
+    try:
+        provider_id = LlmProviderId(provider.strip().lower())
+    except ValueError:
+        provider_id = LlmProviderId.openrouter
+
     query = q.strip().lower()
-    models = list_chat_models()
+    models = list_chat_models(provider_id, credentials=credentials)
     if query:
         models = [
             model
@@ -306,6 +410,15 @@ def openrouter_model_search(
     return JSONResponse(
         [{"id": model.id, "label": model.label} for model in models[:25]]
     )
+
+
+@router.get("/api/openrouter/models")
+def openrouter_model_search(
+    q: str = Query(""),
+    user: User = Depends(web_user),
+    session: Session = Depends(get_session),
+):
+    return llm_model_search(provider=LlmProviderId.openrouter.value, q=q, user=user, session=session)
 
 
 @router.post("/settings")
@@ -443,11 +556,24 @@ def delete_watchlist_item(
     return RedirectResponse("/settings?msg=Stock+removed+from+watchlist.", status_code=303)
 
 
+@router.post("/settings/story-mix")
+def save_story_mix_settings(
+    user: User = Depends(web_user),
+    session: Session = Depends(get_session),
+    preferred_categories: list[str] = Form(default=[]),
+):
+    settings = get_settings(session)
+    settings.preferred_categories = serialize_selected(preferred_categories)
+    settings.updated_at = utcnow()
+    session.add(settings)
+    session.commit()
+    return RedirectResponse("/settings?msg=Story+mix+saved.", status_code=303)
+
+
 @router.post("/settings/advanced")
 def save_advanced_settings(
     user: User = Depends(web_user),
     session: Session = Depends(get_session),
-    preferred_categories: list[str] = Form(default=[]),
     max_article_length: int = Form(6000),
     target_minutes_min: float = Form(1.5),
     target_minutes_max: float = Form(3.0),
@@ -456,13 +582,13 @@ def save_advanced_settings(
     voice_language: str = Form(""),
     voice_accent: str = Form(""),
     voice_randomize: str | None = Form(None),
-    openrouter_model: str = Form("openai/gpt-4o-mini"),
+    llm_provider: str = Form(""),
+    llm_model: str = Form("openai/gpt-4o-mini"),
     podcast_title: str = Form("Morning News"),
     podcast_author: str = Form("Morning News"),
     podcast_description: str = Form(""),
 ):
     settings = get_settings(session)
-    settings.preferred_categories = serialize_selected(preferred_categories)
     settings.max_article_length = max(500, max_article_length)
     settings.target_minutes_min = target_minutes_min
     settings.target_minutes_max = target_minutes_max
@@ -471,7 +597,20 @@ def save_advanced_settings(
     settings.voice_language = voice_language.strip().lower()
     settings.voice_accent = voice_accent.strip().lower()
     settings.voice_randomize = voice_randomize is not None
-    settings.openrouter_model = openrouter_model.strip() or settings.openrouter_model
+    try:
+        provider_id = LlmProviderId((llm_provider or settings.llm_provider or resolve_provider(
+            credentials=load_credentials(settings),
+            settings_provider=settings.llm_provider,
+            settings_model=settings.llm_model,
+        )).strip().lower())
+    except ValueError:
+        provider_id = resolve_provider(
+            credentials=load_credentials(settings),
+            settings_provider=settings.llm_provider,
+            settings_model=settings.llm_model,
+        )
+    settings.llm_provider = provider_id.value
+    settings.llm_model = normalize_model(provider_id, llm_model.strip() or settings.llm_model)
     settings.podcast_title = podcast_title.strip() or "Morning News"
     settings.podcast_author = podcast_author.strip() or "Morning News"
     settings.podcast_description = podcast_description.strip()
@@ -499,14 +638,14 @@ async def save_intro(
     if intro is not None and intro.filename:
         data = await intro.read()
         if not data:
-            return RedirectResponse("/settings?err=That+file+was+empty.+Choose+a+different+MP3+and+try+again.", status_code=303)
+            return RedirectResponse("/settings/advanced?err=That+file+was+empty.+Choose+a+different+MP3+and+try+again.", status_code=303)
         with open(config.intro_path, "wb") as handle:
             handle.write(data)
         message = "Intro+music+uploaded.+It+will+play+before+the+next+episode."
 
     session.add(settings)
     session.commit()
-    return RedirectResponse(f"/settings?msg={message}", status_code=303)
+    return RedirectResponse(f"/settings/advanced?msg={message}", status_code=303)
 
 
 @router.post("/settings/outro")
@@ -526,14 +665,14 @@ async def save_outro(
     if outro is not None and outro.filename:
         data = await outro.read()
         if not data:
-            return RedirectResponse("/settings?err=That+file+was+empty.+Choose+a+different+MP3+and+try+again.", status_code=303)
+            return RedirectResponse("/settings/advanced?err=That+file+was+empty.+Choose+a+different+MP3+and+try+again.", status_code=303)
         with open(config.outro_path, "wb") as handle:
             handle.write(data)
         message = "Outro+music+uploaded.+It+will+play+after+the+next+episode."
 
     session.add(settings)
     session.commit()
-    return RedirectResponse(f"/settings?msg={message}", status_code=303)
+    return RedirectResponse(f"/settings/advanced?msg={message}", status_code=303)
 
 
 @router.post("/sources")
@@ -547,7 +686,7 @@ def add_source(
     if url:
         session.add(Source(url=url, name=name.strip()))
         session.commit()
-    return RedirectResponse("/settings?msg=News+feed+added.", status_code=303)
+    return RedirectResponse("/settings/advanced?msg=News+feed+added.", status_code=303)
 
 
 @router.post("/sources/{source_id}/delete")
@@ -560,7 +699,7 @@ def delete_source(
     if source is not None:
         session.delete(source)
         session.commit()
-    return RedirectResponse("/settings?msg=News+feed+deleted.", status_code=303)
+    return RedirectResponse("/settings/advanced?msg=News+feed+deleted.", status_code=303)
 
 
 @router.post("/preferences")
@@ -598,18 +737,18 @@ def add_user(
 ):
     username = username.strip()
     if not username or not password:
-        return RedirectResponse("/settings?err=Enter+a+username+and+password+for+the+new+person.", status_code=303)
+        return RedirectResponse("/settings/advanced?err=Enter+a+username+and+password+for+the+new+person.", status_code=303)
     existing = session.exec(select(User).where(User.username == username)).first()
     if existing is not None:
-        return RedirectResponse("/settings?err=That+username+is+already+in+use.+Try+a+different+one.", status_code=303)
+        return RedirectResponse("/settings/advanced?err=That+username+is+already+in+use.+Try+a+different+one.", status_code=303)
     create_user(session, username, password)
-    return RedirectResponse("/settings?msg=Household+member+added.", status_code=303)
+    return RedirectResponse("/settings/advanced?msg=Household+member+added.", status_code=303)
 
 
-def _safe_list_voices(settings):
+def _safe_list_voices(settings, credentials):
     try:
         return list_voice_options(
-            get_provider(),
+            get_provider(credentials=credentials),
             voice_language=settings.voice_language,
             voice_accent=settings.voice_accent,
             news_hl=settings.news_hl,
@@ -619,10 +758,10 @@ def _safe_list_voices(settings):
         return []
 
 
-def _safe_list_accents(settings):
+def _safe_list_accents(settings, credentials):
     try:
         return list_accent_options(
-            get_provider(),
+            get_provider(credentials=credentials),
             voice_language=settings.voice_language,
             news_hl=settings.news_hl,
         )

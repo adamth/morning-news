@@ -16,7 +16,7 @@ import feedparser
 import httpx
 import trafilatura
 
-from ..config import config
+from ..credentials import Credentials
 
 logger = logging.getLogger(__name__)
 
@@ -169,13 +169,13 @@ def _extract_with_trafilatura(url: str) -> str | None:
         return None
 
 
-def _extract_with_zyte(url: str) -> str | None:
-    if not config.zyte_api_key:
+def _extract_with_zyte(url: str, *, zyte_api_key: str | None) -> str | None:
+    if not zyte_api_key:
         return None
     try:
         response = httpx.post(
             "https://api.zyte.com/v1/extract",
-            auth=(config.zyte_api_key, ""),
+            auth=(zyte_api_key, ""),
             json={"url": url, "article": True},
             timeout=60,
         )
@@ -187,13 +187,13 @@ def _extract_with_zyte(url: str) -> str | None:
     return (article.get("articleBody") or "").strip() or None
 
 
-def extract_body(url: str) -> str:
+def extract_body(url: str, *, zyte_api_key: str | None = None) -> str:
     """Run the tiered extraction chain; returns '' if everything fails."""
 
     text = _extract_with_trafilatura(url)
     if text:
         return text
-    text = _extract_with_zyte(url)
+    text = _extract_with_zyte(url, zyte_api_key=zyte_api_key)
     if text:
         return text
     return ""
@@ -269,6 +269,8 @@ def gather_articles(
     max_entries_per_feed: int = 15,
     max_articles: int = 25,
     extract: bool = True,
+    *,
+    zyte_api_key: str | None = None,
 ) -> list[Article]:
     """Collect, dedupe, and (optionally) extract bodies for candidate articles.
 
@@ -325,5 +327,5 @@ def gather_articles(
                 target_url = _resolve_redirect(target_url)
                 article.url = target_url
             if not _is_google_news(target_url):
-                article.body = extract_body(target_url)
+                article.body = extract_body(target_url, zyte_api_key=zyte_api_key)
     return selected

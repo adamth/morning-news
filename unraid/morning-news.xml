@@ -23,7 +23,11 @@
   <Config Name="WebUI" Target="8080" Default="8080" Mode="tcp" Type="Port" Display="always" Required="true" Description="Web UI and RSS feed"/>
   <Config Name="SESSION_SECRET" Target="SESSION_SECRET" Default="" Mode="" Type="Variable" Display="always" Required="true" Description="Random secret for login cookies"/>
   <Config Name="ELEVENLABS_API_KEY" Target="ELEVENLABS_API_KEY" Default="" Mode="" Type="Variable" Display="always" Required="false" Description="ElevenLabs text-to-speech"/>
-  <Config Name="OPENROUTER_API_KEY" Target="OPENROUTER_API_KEY" Default="" Mode="" Type="Variable" Display="always" Required="false" Description="OpenRouter LLM gateway"/>
+  <Config Name="OPENROUTER_API_KEY" Target="OPENROUTER_API_KEY" Default="" Mode="" Type="Variable" Display="always" Required="false" Description="OpenRouter LLM (set one LLM key)"/>
+  <Config Name="OPENAI_API_KEY" Target="OPENAI_API_KEY" Default="" Mode="" Type="Variable" Display="advanced" Required="false" Description="OpenAI / ChatGPT API"/>
+  <Config Name="ANTHROPIC_API_KEY" Target="ANTHROPIC_API_KEY" Default="" Mode="" Type="Variable" Display="advanced" Required="false" Description="Anthropic / Claude API"/>
+  <Config Name="LLM_BASE_URL" Target="LLM_BASE_URL" Default="" Mode="" Type="Variable" Display="advanced" Required="false" Description="Custom OpenAI-compatible base URL"/>
+  <Config Name="LLM_API_KEY" Target="LLM_API_KEY" Default="" Mode="" Type="Variable" Display="advanced" Required="false" Description="API key for custom LLM endpoint"/>
   <Config Name="BOOTSTRAP_USERNAME" Target="BOOTSTRAP_USERNAME" Default="admin" Mode="" Type="Variable" Display="always" Required="false" Description="First-run admin username (only when no users exist)"/>
   <Config Name="BOOTSTRAP_PASSWORD" Target="BOOTSTRAP_PASSWORD" Default="" Mode="" Type="Variable" Display="always" Required="false" Description="First-run admin password"/>
   <Config Name="BASE_URL" Target="BASE_URL" Default="" Mode="" Type="Variable" Display="advanced" Required="false" Description="Optional public URL for RSS links"/>

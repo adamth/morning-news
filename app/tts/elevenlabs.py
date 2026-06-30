@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from ..config import config
+from ..credentials import Credentials
 from .base import TtsProvider, TtsVoice
 
 logger = logging.getLogger(__name__)
@@ -107,7 +107,7 @@ class ElevenLabsProvider(TtsProvider):
         )
 
 
-def get_provider() -> TtsProvider:
-    if not config.elevenlabs_api_key:
-        raise TtsError("ELEVENLABS_API_KEY is not configured")
-    return ElevenLabsProvider(config.elevenlabs_api_key)
+def get_provider(*, credentials: Credentials) -> TtsProvider:
+    if not credentials.elevenlabs_api_key:
+        raise TtsError("Add your ElevenLabs API key in Settings → Connections")
+    return ElevenLabsProvider(credentials.elevenlabs_api_key)
