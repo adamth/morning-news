@@ -4,7 +4,7 @@
 {% set latest_episode = episodes[0] if episodes else none %}
 {% set past_episodes = episodes[1:] if episodes|length > 1 else [] %}
 {% set schedule_label = '%02d:%02d'|format(settings.schedule_hour, settings.schedule_minute) ~ ' ' ~ settings.timezone %}
-{% set started_generating = 'generating' in (request.query_params.get('msg') or '')|lower %}
+{% set started_generating = request.query_params.get('generating') == '1' %}
 {% set is_building = (latest_episode and latest_episode.status.value == 'generating') or started_generating %}
 
 <h1>Dashboard</h1>
@@ -15,6 +15,7 @@
     class="section overflow-visible"
     id="show-hero"
     {% if is_building %}data-poll-generating="true"{% endif %}
+    {% if latest_episode and latest_episode.status.value == 'generating' %}data-episode-generating="true"{% endif %}
     aria-live="polite"
   >
     <div class="space-y-5">

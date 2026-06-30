@@ -159,7 +159,10 @@ def generate_now(
     user: User = Depends(web_user),
 ):
     background_tasks.add_task(generate_episode_background)
-    return RedirectResponse("/?msg=Generating+episode+in+the+background", status_code=303)
+    return RedirectResponse(
+        "/?generating=1&msg=Generating+episode+in+the+background",
+        status_code=303,
+    )
 
 
 @router.get("/settings", response_class=HTMLResponse)

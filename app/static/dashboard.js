@@ -44,6 +44,24 @@ generateForm?.addEventListener("submit", () => {
   generateButton.textContent = "Starting…";
 });
 
+const stripTransientQueryParams = () => {
+  const url = new URL(window.location.href);
+  let changed = false;
+  for (const key of ["generating", "msg"]) {
+    if (url.searchParams.has(key)) {
+      url.searchParams.delete(key);
+      changed = true;
+    }
+  }
+  if (!changed) {
+    return;
+  }
+  const clean = url.pathname + (url.search ? url.search : "") + url.hash;
+  history.replaceState(null, "", clean);
+};
+
+let sawGenerating = showHero?.dataset.episodeGenerating === "true";
+
 const pollLatestEpisode = async () => {
   try {
     const response = await fetch("/api/episodes/latest", {
@@ -54,14 +72,20 @@ const pollLatestEpisode = async () => {
     }
     const payload = await response.json();
     const status = payload.episode?.status;
-    if (status && status !== "generating") {
-      window.location.reload();
+    if (status === "generating") {
+      sawGenerating = true;
+      return;
     }
+    if (!sawGenerating) {
+      return;
+    }
+    window.location.replace(window.location.pathname);
   } catch {
     /* ignore transient network errors while polling */
   }
 };
 
 if (showHero?.dataset.pollGenerating === "true") {
+  stripTransientQueryParams();
   window.setInterval(pollLatestEpisode, 4000);
 }
