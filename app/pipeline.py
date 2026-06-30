@@ -30,7 +30,7 @@ from .sources import news, weather
 from .sources.calendar import fetch_events
 from .sources import stocks
 from .health import refresh_health_report
-from .tts import get_provider
+from .tts import build_narrator_opening, get_provider, resolve_episode_voice
 
 logger = logging.getLogger(__name__)
 
@@ -182,10 +182,21 @@ def _run(
     voice_path = config.episodes_dir / f"{episode.id}.voice.mp3"
     final_path = config.episodes_dir / f"{episode.id}.mp3"
     provider = get_provider()
-    provider.synthesize(
-        content.script,
-        voice_path,
+    resolved_voice = resolve_episode_voice(
+        provider,
         voice_id=settings.voice_id,
+        voice_randomize=settings.voice_randomize,
+        voice_language=settings.voice_language,
+        voice_accent=settings.voice_accent,
+        news_hl=settings.news_hl,
+        date_text=date_text,
+    )
+    narrator_opening = build_narrator_opening(resolved_voice.name, settings.podcast_title)
+    narration_text = f"{narrator_opening}\n\n{content.script}"
+    provider.synthesize(
+        narration_text,
+        voice_path,
+        voice_id=resolved_voice.voice_id,
         model_id=settings.voice_model,
     )
     speed_up_narration(voice_path)

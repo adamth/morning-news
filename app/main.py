@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 from starlette.middleware.sessions import SessionMiddleware
@@ -17,7 +17,7 @@ from .auth import LoginRequired, create_user
 from .config import config
 from .db import User, engine, get_settings, init_db
 from .routes import auth_routes, feed, media, messages, ui
-from .health import get_health_report, run_liveness_checks
+from .health import get_health_report
 from .scheduler import shutdown_scheduler, start_scheduler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -97,8 +97,5 @@ app.include_router(media.router)
 
 @app.get("/healthz")
 def healthz():
-    report = run_liveness_checks()
-    payload = report.to_dict()
-    if report.has_issues:
-        return JSONResponse({"status": "degraded", **payload}, status_code=503)
-    return {"status": "ok", **payload}
+    """Liveness probe for Docker — must stay cheap; dependency checks run on a schedule."""
+    return {"status": "ok"}

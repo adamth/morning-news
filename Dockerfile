@@ -24,10 +24,13 @@ COPY --from=css /src/app/static/style.css ./app/static/style.css
 ENV DATA_DIR=/data \
     PYTHONUNBUFFERED=1
 
-VOLUME ["/data"]
+COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+HEALTHCHECK --interval=5m --timeout=10s --start-period=30s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=8)" || exit 1
 
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

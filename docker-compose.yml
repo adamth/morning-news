@@ -15,10 +15,10 @@ services:
       - morning-news-data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=8)"]
-      interval: 30s
+      interval: 5m
       timeout: 10s
       retries: 3
-      start_period: 20s
+      start_period: 30s
     environment:
       # Optional: canonical public URL for RSS enclosures (otherwise derived per request).
       BASE_URL: "${BASE_URL:-}"

@@ -51,14 +51,60 @@ class ElevenLabsProvider(TtsProvider):
             return []
         voices: list[TtsVoice] = []
         for voice in getattr(response, "voices", []) or []:
+            labels = getattr(voice, "labels", None) or {}
             voices.append(
                 TtsVoice(
                     voice_id=voice.voice_id,
                     name=voice.name or voice.voice_id,
                     description=(getattr(voice, "category", "") or ""),
+                    accent=(labels.get("accent") or ""),
+                    language=(labels.get("language") or ""),
                 )
             )
         return voices
+
+    def list_voices_matching(
+        self,
+        *,
+        language: str | None = None,
+        accent: str | None = None,
+    ) -> list[TtsVoice]:
+        try:
+            response = self.client.voices.get_shared(
+                page_size=100,
+                language=language,
+                accent=accent,
+            )
+        except Exception as error:
+            logger.warning("Could not list ElevenLabs library voices: %s", error)
+            return super().list_voices_matching(language=language, accent=accent)
+        voices: list[TtsVoice] = []
+        for voice in getattr(response, "voices", []) or []:
+            voices.append(
+                TtsVoice(
+                    voice_id=voice.voice_id,
+                    name=voice.name or voice.voice_id,
+                    description=voice.description or "",
+                    accent=voice.accent or "",
+                    language=voice.language or "",
+                )
+            )
+        return voices
+
+    def get_voice(self, voice_id: str) -> TtsVoice | None:
+        try:
+            voice = self.client.voices.get(voice_id=voice_id)
+        except Exception as error:
+            logger.warning("Could not fetch ElevenLabs voice %s: %s", voice_id, error)
+            return super().get_voice(voice_id)
+        labels = getattr(voice, "labels", None) or {}
+        return TtsVoice(
+            voice_id=voice.voice_id,
+            name=voice.name or voice.voice_id,
+            description=(getattr(voice, "category", "") or ""),
+            accent=(labels.get("accent") or ""),
+            language=(labels.get("language") or ""),
+        )
 
 
 def get_provider() -> TtsProvider:

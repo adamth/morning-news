@@ -65,19 +65,52 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 ## Running on Unraid
 
-1. Build and push the image (`npm run unraid:push`) or build locally on the NAS.
-2. Create a container from `morning-news:latest`.
-3. **Map a host path to `/data`** — this is required. The database, episodes, and intro/outro
-   mp3 files live here. Without this mapping, each container recreate starts with an empty database.
-   A typical path is `/mnt/user/appdata/morning-news`.
-4. Map a host port to container port `8080`.
-5. Set the environment variables from `.env.example`. Optionally set `BASE_URL` if you
-   need a fixed canonical URL for podcast feed links (otherwise URLs are derived from
-   however clients reach the server).
+The container **must** map a host directory to `/data`. If `/data` is not a volume mount,
+the app refuses to start. Without this mapping, every image pull gives you an empty database.
 
-When updating to a new image, keep the same `/data` host mapping. Unraid's "Apply" on an
-existing container preserves volume mappings; if you recreate the container from scratch,
-re-add the host path before starting it.
+### Recommended: Docker Compose in appdata (survives `docker pull`)
+
+Keep the compose file and `.env` alongside your data on the NAS:
+
+```bash
+mkdir -p /mnt/user/appdata/morning-news
+cd /mnt/user/appdata/morning-news
+# Copy docker-compose.unraid.yml and .env here (once)
+docker compose -f docker-compose.unraid.yml up -d
+```
+
+Set in `.env`:
+
+- `DOCKER_IMAGE=youruser/morning-news:latest`
+- `HOST_PORT=8084` (or whatever host port you use)
+- `APP_DATA_DIR=/mnt/user/appdata/morning-news` (default; same folder is mounted to `/data`)
+- `SESSION_SECRET`, API keys, etc.
+
+**Push from your dev machine:**
+
+```bash
+npm run unraid:push
+```
+
+**Update on the NAS** (pulls the new image, keeps the same `/data` bind mount):
+
+```bash
+cd /mnt/user/appdata/morning-news
+npm run unraid:pull
+# or: docker compose -f docker-compose.unraid.yml pull && docker compose -f docker-compose.unraid.yml up -d
+```
+
+### Alternative: Unraid Docker UI
+
+1. Build and push the image (`npm run unraid:push`).
+2. Add a container from your Docker Hub repo (see `unraid/morning-news.xml` as a template).
+3. **Path mapping (required):** Host `/mnt/user/appdata/morning-news` → Container `/data`
+4. Map a host port to container port `8080`.
+5. Set environment variables from `.env.example`.
+
+When updating via the Unraid UI, use **Apply** on the existing container so the path
+mapping is kept. If you delete and recreate the container, re-add the `/data` mapping
+before starting it.
 
 ## Local development
 

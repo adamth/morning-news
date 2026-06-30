@@ -32,7 +32,12 @@ from ..pipeline import generate_episode_background
 from ..scheduler import reschedule
 from ..sources import weather
 from ..templating import templates
-from ..tts import get_provider
+from ..tts import (
+    VOICE_LANGUAGE_OPTIONS,
+    get_provider,
+    list_accent_options,
+    list_voice_options,
+)
 from ..urls import resolve_base_url
 
 logger = logging.getLogger(__name__)
@@ -236,7 +241,8 @@ def advanced_settings_page(
     session: Session = Depends(get_session),
 ):
     settings = get_settings(session)
-    voices = _safe_list_voices()
+    voices = _safe_list_voices(settings)
+    voice_accents = _safe_list_accents(settings)
     openrouter_models = list_chat_models()
     return templates.TemplateResponse(
         request,
@@ -247,6 +253,8 @@ def advanced_settings_page(
             "settings_tab": "advanced",
             "s": settings,
             "voices": voices,
+            "voice_accents": voice_accents,
+            "voice_languages": VOICE_LANGUAGE_OPTIONS,
             "openrouter_models": openrouter_models,
             "news_categories": NEWS_CATEGORIES,
             "selected_categories": set(parse_selected(settings.preferred_categories)),
@@ -445,6 +453,9 @@ def save_advanced_settings(
     target_minutes_max: float = Form(3.0),
     voice_id: str = Form(""),
     voice_model: str = Form("eleven_v3"),
+    voice_language: str = Form(""),
+    voice_accent: str = Form(""),
+    voice_randomize: str | None = Form(None),
     openrouter_model: str = Form("openai/gpt-4o-mini"),
     podcast_title: str = Form("Morning News"),
     podcast_author: str = Form("Morning News"),
@@ -457,6 +468,9 @@ def save_advanced_settings(
     settings.target_minutes_max = target_minutes_max
     settings.voice_id = voice_id.strip() or settings.voice_id
     settings.voice_model = voice_model.strip() or settings.voice_model
+    settings.voice_language = voice_language.strip().lower()
+    settings.voice_accent = voice_accent.strip().lower()
+    settings.voice_randomize = voice_randomize is not None
     settings.openrouter_model = openrouter_model.strip() or settings.openrouter_model
     settings.podcast_title = podcast_title.strip() or "Morning News"
     settings.podcast_author = podcast_author.strip() or "Morning News"
@@ -592,11 +606,28 @@ def add_user(
     return RedirectResponse("/settings?msg=Household+member+added.", status_code=303)
 
 
-def _safe_list_voices():
+def _safe_list_voices(settings):
     try:
-        return get_provider().list_voices()
+        return list_voice_options(
+            get_provider(),
+            voice_language=settings.voice_language,
+            voice_accent=settings.voice_accent,
+            news_hl=settings.news_hl,
+        )
     except Exception as error:
         logger.info("Voice listing unavailable: %s", error)
+        return []
+
+
+def _safe_list_accents(settings):
+    try:
+        return list_accent_options(
+            get_provider(),
+            voice_language=settings.voice_language,
+            news_hl=settings.news_hl,
+        )
+    except Exception as error:
+        logger.info("Accent listing unavailable: %s", error)
         return []
 
 

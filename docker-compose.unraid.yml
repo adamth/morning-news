@@ -1,0 +1,32 @@
+# Pull-only compose file for Unraid. Keep this file and .env in your appdata
+# directory (same folder that is mounted to /data) so image updates reuse the
+# database and episodes.
+#
+# One-time setup on Unraid:
+#   mkdir -p /mnt/user/appdata/morning-news
+#   cd /mnt/user/appdata/morning-news
+#   # copy docker-compose.unraid.yml and .env here
+#   docker compose -f docker-compose.unraid.yml up -d
+#
+# Update after npm run unraid:push:
+#   docker compose -f docker-compose.unraid.yml pull
+#   docker compose -f docker-compose.unraid.yml up -d
+
+services:
+  morning-news:
+    image: ${DOCKER_IMAGE:?Set DOCKER_IMAGE in .env, e.g. youruser/morning-news:latest}
+    container_name: morning-news
+    platform: linux/amd64
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    volumes:
+      - ${APP_DATA_DIR:-/mnt/user/appdata/morning-news}:/data
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=8)"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 30s

@@ -50,11 +50,38 @@
     <h2 class="form-section-heading">Narrator voice</h2>
     <div class="field-row">
       <div>
+        <label for="voice_language">Language</label>
+        <select id="voice_language" name="voice_language">
+          {% for code, label in voice_languages %}
+          <option value="{{ code }}" {{ 'selected' if code == s.voice_language else '' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <div class="field-hint">Used to filter voices and for daily rotation. “Match news language” follows your town setting on Basic.</div>
+      </div>
+      <div>
+        <label for="voice_accent">Accent</label>
+        <select id="voice_accent" name="voice_accent">
+          <option value="" {{ 'selected' if not s.voice_accent else '' }}>Any accent</option>
+          {% for accent in voice_accents %}
+          <option value="{{ accent }}" {{ 'selected' if accent == s.voice_accent else '' }}>{{ accent.replace('-', ' ')|title }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <label class="checkbox-inline">
+      <input type="checkbox" name="voice_randomize" value="1" id="voice_randomize" {{ 'checked' if s.voice_randomize else '' }}>
+      Different narrator each day
+    </label>
+    <div class="field-hint">When enabled, each episode picks a voice from the library matching your language and accent. The voice below is a fallback if the library cannot be reached.</div>
+    <div class="field-row" id="voice-picker-row">
+      <div>
         <label for="voice_id">Voice</label>
         {% if voices %}
         <select id="voice_id" name="voice_id">
           {% for voice in voices %}
-          <option value="{{ voice.voice_id }}" {{ 'selected' if voice.voice_id == s.voice_id else '' }}>{{ voice.name }}</option>
+          <option value="{{ voice.voice_id }}" {{ 'selected' if voice.voice_id == s.voice_id else '' }}>
+            {{ voice.name }}{% if voice.accent %} ({{ voice.accent.replace('-', ' ')|title }}){% endif %}
+          </option>
           {% endfor %}
         </select>
         {% else %}
@@ -123,4 +150,16 @@
 
 {% block scripts %}
 <script src="/static/model-autocomplete.js?v=1"></script>
+<script>
+  (() => {
+    const randomize = document.getElementById("voice_randomize");
+    const pickerRow = document.getElementById("voice-picker-row");
+    const syncVoicePicker = () => {
+      if (!randomize || !pickerRow) return;
+      pickerRow.hidden = randomize.checked;
+    };
+    randomize?.addEventListener("change", syncVoicePicker);
+    syncVoicePicker();
+  })();
+</script>
 {% endblock %}

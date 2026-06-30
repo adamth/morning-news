@@ -90,6 +90,9 @@ class Settings(SQLModel, table=True):
     # TTS
     voice_id: str = "JBFqnCBsd6RMkjVDRZzb"
     voice_model: str = "eleven_v3"
+    voice_language: str = ""  # empty = derive from news_hl
+    voice_accent: str = ""  # empty = any accent
+    voice_randomize: bool = False
     intro_enabled: bool = True
     intro_play_seconds: float = 6.0  # full-volume play time before fade-out begins
     outro_enabled: bool = True
@@ -192,6 +195,9 @@ def _migrate_schema() -> None:
         "ALTER TABLE settings ADD COLUMN stocks_enabled INTEGER DEFAULT 0",
         "ALTER TABLE settings ADD COLUMN stocks_mature_reactions INTEGER DEFAULT 0",
         "ALTER TABLE episode ADD COLUMN market_summary TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN voice_language TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN voice_accent TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN voice_randomize INTEGER DEFAULT 0",
     )
     with engine.connect() as connection:
         for statement in migrations:
