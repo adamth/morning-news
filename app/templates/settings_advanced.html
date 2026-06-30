@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Advanced settings - Morning News{% endblock %}
+{% block content %}
+<header class="settings-header">
+  <h1>Settings</h1>
+  <p class="page-lead">
+    Voice, length, and story preferences — usually set once and left alone.
+  </p>
+</header>
+
+{% include "partials/settings_tabs.html" %}
+
+<section class="section">
+  <form method="post" action="/settings/advanced">
+    <h2 class="form-section-heading">Story mix</h2>
+    <p class="field-hint">Tick topics you'd like the show to favour. These are gentle preferences, not rules — to block a subject entirely, use <a href="/settings">Topics to skip</a> on Basic.</p>
+    <div class="category-grid">
+      {% for category in news_categories %}
+      <label class="category-option">
+        <input
+          type="checkbox"
+          name="preferred_categories"
+          value="{{ category.id }}"
+          {{ 'checked' if category.id in selected_categories else '' }}
+        />
+        <span>{{ category.label }}</span>
+      </label>
+      {% endfor %}
+    </div>
+
+    <hr class="form-divider" />
+    <h2 class="form-section-heading">Episode length</h2>
+    <div class="field-row">
+      <div>
+        <label for="target_minutes_min">Shortest (minutes)</label>
+        <input type="number" step="0.1" id="target_minutes_min" name="target_minutes_min" value="{{ s.target_minutes_min }}" />
+      </div>
+      <div>
+        <label for="target_minutes_max">Longest (minutes)</label>
+        <input type="number" step="0.1" id="target_minutes_max" name="target_minutes_max" value="{{ s.target_minutes_max }}" />
+      </div>
+      <div>
+        <label for="max_article_length">Article length limit</label>
+        <input type="number" id="max_article_length" name="max_article_length" value="{{ s.max_article_length }}" min="500" />
+        <div class="field-hint">Very long source articles are shortened to about this many characters before the script is written.</div>
+      </div>
+    </div>
+
+    <hr class="form-divider" />
+    <h2 class="form-section-heading">Narrator voice</h2>
+    <div class="field-row">
+      <div>
+        <label for="voice_id">Voice</label>
+        {% if voices %}
+        <select id="voice_id" name="voice_id">
+          {% for voice in voices %}
+          <option value="{{ voice.voice_id }}" {{ 'selected' if voice.voice_id == s.voice_id else '' }}>{{ voice.name }}</option>
+          {% endfor %}
+        </select>
+        {% else %}
+        <input type="text" id="voice_id" name="voice_id" value="{{ s.voice_id }}" placeholder="Voice ID from your narration provider" />
+        <div class="field-hint">Voice names appear here once narration is configured on the server.</div>
+        {% endif %}
+      </div>
+      <div>
+        <label for="voice_model">Voice quality</label>
+        <select id="voice_model" name="voice_model">
+          <option value="eleven_v3" {{ 'selected' if s.voice_model == 'eleven_v3' else '' }}>Best quality</option>
+          <option value="eleven_multilingual_v2" {{ 'selected' if s.voice_model == 'eleven_multilingual_v2' else '' }}>Multilingual</option>
+          <option value="eleven_turbo_v2_5" {{ 'selected' if s.voice_model == 'eleven_turbo_v2_5' else '' }}>Balanced</option>
+          <option value="eleven_flash_v2_5" {{ 'selected' if s.voice_model == 'eleven_flash_v2_5' else '' }}>Fastest</option>
+        </select>
+        <div class="field-hint">Best quality sounds most natural if your plan includes it.</div>
+      </div>
+    </div>
+
+    <hr class="form-divider" />
+    <h2 class="form-section-heading">Script writer</h2>
+    <label for="openrouter_model">Writing model</label>
+    <div class="location-field">
+      <input
+        type="text"
+        id="openrouter_model"
+        name="openrouter_model"
+        value="{{ s.openrouter_model }}"
+        placeholder="Start typing to search…"
+        autocomplete="off"
+        data-model-autocomplete="1"
+      />
+      <div id="openrouter-model-suggestions" class="location-suggestions" hidden></div>
+    </div>
+    {% if openrouter_models %}
+    <div class="field-hint">Choose from the list as you type — this model picks stories and writes the script.</div>
+    {% else %}
+    <div class="field-hint">Could not load models from the server. You can still type a model name if you know it, or check <a href="/settings/status">System status</a>.</div>
+    {% endif %}
+    {% if s.latitude %}
+    <div class="field-hint">Local news region follows your town on <a href="/settings">Basic</a>.</div>
+    {% endif %}
+
+    <hr class="form-divider" />
+    <h2 class="form-section-heading">In your podcast app</h2>
+    <p class="field-hint">Title, author, and description shown when you subscribe in Apple Podcasts, Overcast, and similar apps.</p>
+    <div class="field-row">
+      <div>
+        <label for="podcast_title">Show title</label>
+        <input type="text" id="podcast_title" name="podcast_title" value="{{ s.podcast_title }}" />
+      </div>
+      <div>
+        <label for="podcast_author">Author</label>
+        <input type="text" id="podcast_author" name="podcast_author" value="{{ s.podcast_author }}" />
+      </div>
+    </div>
+    <label for="podcast_description">Description</label>
+    <textarea id="podcast_description" name="podcast_description">{{ s.podcast_description }}</textarea>
+
+    <div class="form-actions">
+      <button type="submit">Save advanced settings</button>
+    </div>
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/model-autocomplete.js?v=1"></script>
+{% endblock %}

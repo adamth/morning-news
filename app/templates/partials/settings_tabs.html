@@ -1,0 +1,26 @@
+<nav class="settings-tabs" aria-label="Settings sections">
+  <a
+    href="/settings"
+    class="settings-tab{% if settings_tab == 'basic' %} is-active{% endif %}"
+    {% if settings_tab == 'basic' %}aria-current="page"{% endif %}
+  >Basic</a>
+  <a
+    href="/settings/advanced"
+    class="settings-tab{% if settings_tab == 'advanced' %} is-active{% endif %}"
+    {% if settings_tab == 'advanced' %}aria-current="page"{% endif %}
+  >Advanced</a>
+  <a
+    href="/settings/status"
+    class="settings-tab{% if settings_tab == 'status' %} is-active{% endif %}"
+    {% if settings_tab == 'status' %}aria-current="page"{% endif %}
+  >
+    System status
+    {% if request.state.health_has_issues %}
+    <span
+      class="settings-tab-badge"
+      title="{{ request.state.health_issue_count }} issue{{ 's' if request.state.health_issue_count != 1 else '' }}"
+      aria-label="{{ request.state.health_issue_count }} issue{{ 's' if request.state.health_issue_count != 1 else '' }}"
+    >!</span>
+    {% endif %}
+  </a>
+</nav>

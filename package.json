@@ -1,0 +1,12 @@
+{
+  "name": "morning-news",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i ./assets/input.css -o ./app/static/style.css --minify",
+    "watch:css": "tailwindcss -i ./assets/input.css -o ./app/static/style.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.11",
+    "tailwindcss": "^4.1.11"
+  }
+}

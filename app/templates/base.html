@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}Morning News{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Work+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Work+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    {% if user %}
+    <header class="sticky top-0 z-10 border-b border-border/60 bg-surface/85 backdrop-blur-md">
+      <div
+        class="mx-auto flex max-w-[56rem] flex-wrap items-center justify-between gap-x-6 gap-y-3 px-6 py-3.5"
+      >
+        <a
+          href="/"
+          class="brand-mark font-serif text-xl font-semibold no-underline"
+          >Morning News</a
+        >
+        <nav
+          class="flex flex-wrap items-center gap-5 text-sm"
+          aria-label="Primary"
+        >
+          <a
+            href="/"
+            class="no-underline {{ 'font-semibold text-accent-strong' if active == 'dashboard' else 'text-muted hover:text-accent' }}"
+            >Dashboard</a
+          >
+          <a
+            href="/settings"
+            class="no-underline {{ 'font-semibold text-accent-strong' if active == 'settings' else 'text-muted hover:text-accent' }}"
+            >Settings</a
+          >
+          {% if request.state.health_has_issues %}
+          <a
+            href="/settings/status"
+            class="nav-issue-badge no-underline"
+            title="{{ request.state.health_issue_count }} system issue{{ 's' if request.state.health_issue_count != 1 else '' }}"
+            >!</a
+          >
+          {% endif %}
+          <span class="flex items-center gap-3 border-l border-border pl-5">
+            <span class="text-muted">{{ user.username }}</span>
+            <a href="/logout" class="text-muted no-underline hover:text-accent"
+              >Sign out</a
+            >
+          </span>
+        </nav>
+      </div>
+    </header>
+    {% endif %}
+    <main
+      class="{% block wrap_class %}mx-auto max-w-[56rem] px-6 py-8{% endblock %}"
+    >
+      {% if request.query_params.get('msg') %}
+      <div class="flash flash-success" role="status">
+        {{ request.query_params.get('msg') }}
+      </div>
+      {% endif %} {% if request.query_params.get('err') %}
+      <div class="flash flash-error" role="alert">
+        {{ request.query_params.get('err') }}
+      </div>
+      {% endif %} {% block content %}{% endblock %}
+    </main>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Sign in - Morning News{% endblock %}
+{% block wrap_class %}mx-auto max-w-md px-6 py-12{% endblock %}
+{% block content %}
+<div class="section section-emphasis">
+  <h1 class="brand-mark text-center text-4xl font-semibold">Morning News</h1>
+  <p class="mt-2 text-center text-muted">Sign in to continue</p>
+  {% if error %}<div class="flash flash-error mt-6">{{ error }}</div>{% endif %}
+  <form method="post" action="/login" class="mt-8">
+    <label for="username">Username</label>
+    <input type="text" id="username" name="username" autofocus required />
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" required />
+    <div class="form-actions form-actions-block">
+      <button type="submit">Sign in</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

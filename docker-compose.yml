@@ -1,0 +1,31 @@
+services:
+  morning-news:
+    build: .
+    image: morning-news:latest
+    container_name: morning-news
+    restart: unless-stopped
+    ports:
+      # Host:Container. Change the host port if 8080 is taken on your Unraid box.
+      - "8080:8080"
+    volumes:
+      # Persist the database, generated episodes, and intro.mp3.
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=8)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    environment:
+      # Optional: canonical public URL for RSS enclosures (otherwise derived per request).
+      BASE_URL: "${BASE_URL:-}"
+      # Long random string that signs login session cookies.
+      SESSION_SECRET: "${SESSION_SECRET:?set SESSION_SECRET}"
+      # API keys.
+      ELEVENLABS_API_KEY: "${ELEVENLABS_API_KEY:-}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      ZYTE_API_KEY: "${ZYTE_API_KEY:-}"
+      NEWSDATA_API_KEY: "${NEWSDATA_API_KEY:-}"
+      # First-run login (only used when no users exist yet).
+      BOOTSTRAP_USERNAME: "${BOOTSTRAP_USERNAME:-}"
+      BOOTSTRAP_PASSWORD: "${BOOTSTRAP_PASSWORD:-}"

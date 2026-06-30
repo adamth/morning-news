@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Morning News{% endblock %}
+{% block content %}
+{% set latest_episode = episodes[0] if episodes else none %}
+{% set past_episodes = episodes[1:] if episodes|length > 1 else [] %}
+{% set schedule_label = '%02d:%02d'|format(settings.schedule_hour, settings.schedule_minute) ~ ' ' ~ settings.timezone %}
+{% set started_generating = 'generating' in (request.query_params.get('msg') or '')|lower %}
+{% set is_building = (latest_episode and latest_episode.status.value == 'generating') or started_generating %}
+
+<h1>Dashboard</h1>
+<p class="page-lead">Check today's show, grab the feed, or queue a private note for the next episode.</p>
+
+<div class="dashboard-layout">
+  <section
+    class="section overflow-visible"
+    id="show-hero"
+    {% if is_building %}data-poll-generating="true"{% endif %}
+    aria-live="polite"
+  >
+    <div class="space-y-5">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div class="min-w-0 flex-1">
+          <h2 class="dashboard-cell-title show-heading">Today's show</h2>
+          {% if latest_episode %}
+            <h3 class="mt-1 font-serif text-3xl font-semibold leading-tight text-balance sm:text-4xl">
+              <a href="/episodes/{{ latest_episode.id }}" class="text-ink no-underline hover:text-accent">{{ latest_episode.title }}</a>
+            </h3>
+            <p class="mt-2 text-sm text-muted">
+              {{ latest_episode.created_at.strftime('%A, %b %d') }}
+              {% if latest_episode.duration_seconds %}
+                &middot; {{ (latest_episode.duration_seconds / 60) | round(1) }} min
+              {% endif %}
+            </p>
+          {% else %}
+            <h3 class="mt-1 font-serif text-3xl font-semibold leading-tight sm:text-4xl">No episodes yet</h3>
+          {% endif %}
+        </div>
+        {% if latest_episode %}
+          {% set hero_status = latest_episode.status.value if not started_generating else 'generating' %}
+          <span class="badge badge-pill badge-pill-{{ hero_status }}" id="hero-status-badge">
+            {% if started_generating and latest_episode.status.value != 'generating' %}
+              {{ 'generating' | episode_status_label }}
+            {% else %}
+              {{ latest_episode.status.value | episode_status_label }}
+            {% endif %}
+          </span>
+        {% elif started_generating %}
+          <span class="badge badge-pill badge-pill-generating" id="hero-status-badge">{{ 'generating' | episode_status_label }}</span>
+        {% endif %}
+      </div>
+
+      {% if latest_episode %}
+        <div id="hero-episode-body">
+          {% if latest_episode.description %}
+            <p class="show-summary">{{ latest_episode.description }}</p>
+          {% endif %}
+
+          {% set has_show_details = (
+            latest_episode.weather_summary
+            or latest_episode.market_summary
+            or latest_episode.events_summary
+            or latest_episode_article_count > 0
+            or latest_episode_message_count > 0
+            or location_label
+            or latest_episode.status.value == 'generating'
+            or started_generating
+          ) %}
+          {% if has_show_details %}
+          <dl class="show-details">
+            {% if latest_episode.weather_summary %}
+            <div class="show-detail show-detail-weather">
+              <dt>Weather</dt>
+              <dd>{{ latest_episode.weather_summary }}</dd>
+            </div>
+            {% endif %}
+            {% if latest_episode.market_summary %}
+            <div class="show-detail show-detail-market">
+              <dt>Market</dt>
+              <dd>{{ latest_episode.market_summary }}</dd>
+            </div>
+            {% endif %}
+            {% if latest_episode.events_summary %}
+            <div class="show-detail show-detail-calendar">
+              <dt>Calendar</dt>
+              <dd>{{ latest_episode.events_summary }}</dd>
+            </div>
+            {% endif %}
+            {% if latest_episode_article_count > 0 %}
+            <div class="show-detail show-detail-stories">
+              <dt>Stories</dt>
+              <dd>{{ latest_episode_article_count }} in this episode — <a href="/episodes/{{ latest_episode.id }}">view show notes</a></dd>
+            </div>
+            {% endif %}
+            {% if latest_episode_message_count > 0 %}
+            <div class="show-detail show-detail-notes">
+              <dt>Private notes</dt>
+              <dd>{{ latest_episode_message_count }} read aloud in this episode</dd>
+            </div>
+            {% endif %}
+            {% if location_label %}
+            <div class="show-detail show-detail-location">
+              <dt>Location</dt>
+              <dd>{{ location_label }}</dd>
+            </div>
+            {% endif %}
+            {% if latest_episode.status.value == 'generating' or started_generating %}
+            <div class="show-detail show-detail-building">
+              <dt>Building</dt>
+              <dd id="hero-status-note">
+                News, weather, calendar{% if pending_message_count > 0 %} and {{ pending_message_count }} queued {% if pending_message_count == 1 %}message{% else %}messages{% endif %}{% endif %}.
+                This page updates when it finishes.
+              </dd>
+            </div>
+            {% endif %}
+          </dl>
+          {% endif %}
+
+          {% if latest_episode.status.value == 'failed' %}
+            <p class="field-hint show-status-note">
+              Generation failed{% if latest_episode.error %}: {{ latest_episode.error }}{% endif %}.
+              <a href="/episodes/{{ latest_episode.id }}">Open episode for details</a>.
+            </p>
+          {% elif latest_episode.status.value == 'ready' %}
+            <p class="field-hint show-status-note">
+              Ready in your podcast app{% if latest_episode_media_url %}, or listen below{% endif %}.
+            </p>
+            {% if latest_episode_media_url %}
+            <div class="show-listen">
+              <audio controls preload="none" src="{{ latest_episode_media_url }}"></audio>
+            </div>
+            {% endif %}
+          {% endif %}
+
+          <div class="show-actions">
+            <a class="btn btn-ghost btn-sm" href="/episodes/{{ latest_episode.id }}">Open episode</a>
+          </div>
+        </div>
+      {% else %}
+        <div id="hero-episode-body">
+          {% if setup_incomplete %}
+            <p class="field-hint">
+              Set your location and schedule in <a href="/settings">Settings</a> first —
+              episodes need a place and time to gather local news and weather.
+            </p>
+          {% else %}
+            <p class="field-hint show-summary">
+              Your show is scheduled for <strong>{{ schedule_label }}</strong> each day.
+              You can also create one manually anytime.
+            </p>
+            <dl class="show-details">
+              {% if location_label %}
+              <div class="show-detail show-detail-location">
+                <dt>Location</dt>
+                <dd>{{ location_label }}</dd>
+              </div>
+              {% endif %}
+              <div class="show-detail show-detail-schedule">
+                <dt>Schedule</dt>
+                <dd>{{ schedule_label }} daily · <a href="/settings">change in Settings</a></dd>
+              </div>
+              {% if pending_message_count > 0 %}
+              <div class="show-detail show-detail-queued">
+                <dt>Queued</dt>
+                <dd>{{ pending_message_count }} private {% if pending_message_count == 1 %}message{% else %}messages{% endif %} for the next episode</dd>
+              </div>
+              {% endif %}
+            </dl>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <aside class="section dashboard-actions">
+    <div class="dashboard-actions-block" id="podcast-feed">
+      <h2 class="dashboard-cell-title">Podcast feed</h2>
+      <p class="field-hint dashboard-cell-hint">Add this URL to your podcast app to subscribe.</p>
+      <div class="feed-url-row">
+        <span class="feed-url-text" id="feed-url">{{ feed_url }}</span>
+        <button
+          type="button"
+          class="feed-url-copy btn btn-ghost btn-icon"
+          id="copy-feed-button"
+          aria-label="Copy feed URL"
+        >
+          <svg class="feed-copy-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
+            <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+          </svg>
+          <svg class="feed-copied-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 6 9 17l-5-5"/>
+          </svg>
+        </button>
+        <span class="sr-only" id="copy-feed-feedback" aria-live="polite"></span>
+      </div>
+    </div>
+
+    <div class="dashboard-actions-block" id="create-now">
+      <h2 class="dashboard-cell-title">Create now</h2>
+      <p class="field-hint dashboard-cell-hint">Build an episode from current news, weather, calendar, and messages.</p>
+      <form method="post" action="/generate" id="generate-form">
+        <div class="form-actions dashboard-create-actions">
+          <button type="submit" class="btn btn-lg" id="generate-button" {% if is_building %}disabled{% endif %}>
+            {% if is_building %}Creating episode…{% else %}Create now{% endif %}
+          </button>
+        </div>
+      </form>
+    </div>
+  </aside>
+</div>
+
+<div class="section-stack">
+  <section class="section" id="private-messages">
+    <div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+      <h2 class="mb-0">Private messages</h2>
+      {% if pending_message_count > 0 %}
+        <span class="badge badge-pending">{{ pending_message_count }} queued</span>
+      {% endif %}
+    </div>
+    <p class="field-hint">
+      Optional — only you can see these. Each message is read aloud once in the next episode, then resolved.
+    </p>
+    <form method="post" action="/messages" class="message-compose">
+      <label class="sr-only" for="message-text">Private message</label>
+      <textarea id="message-text" name="text" placeholder="e.g. Remind us to call the dentist this afternoon" required></textarea>
+      <div class="form-actions">
+        <button type="submit">Queue message</button>
+      </div>
+    </form>
+
+    {% if messages %}
+      <ul class="mt-6 border-t border-border/70 pt-6">
+        {% for message in messages %}
+        <li class="list-row">
+          <div>
+            <div>{{ message.text }}</div>
+            <div class="list-meta">
+              <span class="badge badge-{{ message.status.value }}">{{ message.status.value | message_status_label }}</span>
+              &middot; {{ message.created_at.strftime('%b %d, %Y') }}
+            </div>
+          </div>
+          {% if message.status.value == 'pending' %}
+          <form
+            method="post"
+            action="/messages/{{ message.id }}/delete"
+            onsubmit="return confirm('Remove this message? It will not be read aloud.')"
+          >
+            <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+          </form>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="mt-4 text-sm text-muted">No messages queued. Add one above when you have something to say on air.</p>
+    {% endif %}
+  </section>
+
+  {% if past_episodes %}
+  <section class="section">
+    <h2 class="mb-4">Past episodes</h2>
+    <ul>
+      {% for episode in past_episodes %}
+      <li class="list-row">
+        <div>
+          <div><a href="/episodes/{{ episode.id }}">{{ episode.title }}</a></div>
+          <div class="list-meta">
+            <span class="badge badge-{{ episode.status.value }}">{{ episode.status.value | episode_status_label }}</span>
+            &middot; {{ episode.created_at.strftime('%b %d, %Y') }}
+            {% if episode.duration_seconds %}&middot; {{ (episode.duration_seconds / 60) | round(1) }} min{% endif %}
+          </div>
+        </div>
+        <a class="btn btn-ghost btn-sm" href="/episodes/{{ episode.id }}">Open</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/dashboard.js" defer></script>
+{% endblock %}

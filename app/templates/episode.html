@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ episode.title }} - Morning News{% endblock %}
+{% block content %}
+<p><a href="/" class="text-muted no-underline hover:text-accent">&larr; Back to dashboard</a></p>
+<h1>{{ episode.title }}</h1>
+<p class="page-lead mb-6">
+  {{ episode.created_at.strftime('%A, %B %d, %Y') }}
+  <span class="badge badge-{{ episode.status.value }}">{{ episode.status.value | episode_status_label }}</span>
+  {% if episode.duration_seconds %}&middot; {{ (episode.duration_seconds / 60) | round(1) }} min{% endif %}
+</p>
+
+{% if episode.status.value == 'failed' %}
+<div class="flash flash-error">Generation failed: {{ episode.error }}</div>
+{% endif %}
+
+<div class="section-stack">
+  {% if episode.audio_path %}
+  <section class="section">
+    <h2 class="mb-4">Listen</h2>
+    <audio controls preload="none" src="{{ media_url }}"></audio>
+  </section>
+  {% endif %}
+
+  {% if episode.weather_summary or episode.events_summary or episode.market_summary %}
+  <section class="section">
+    <h2 class="mb-4">Today</h2>
+    {% if episode.weather_summary %}<p><strong>Weather:</strong> {{ episode.weather_summary }}</p>{% endif %}
+    {% if episode.market_summary %}<p><strong>Market:</strong> {{ episode.market_summary }}</p>{% endif %}
+    {% if episode.events_summary %}<p><strong>Events:</strong> {{ episode.events_summary }}</p>{% endif %}
+  </section>
+  {% endif %}
+
+  {% if articles %}
+  <section class="section">
+    <h2 class="mb-4">Show notes</h2>
+    <ul>
+      {% for article in articles %}
+      <li class="list-row">
+        <div>
+          <div><a href="{{ article.url }}" target="_blank" rel="noopener">{{ article.title }}</a></div>
+          {% if article.publisher %}<div class="list-meta">{{ article.publisher }}</div>{% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% if episode.script %}
+  <section class="section">
+    <h2 class="mb-4">Transcript</h2>
+    <div class="script-block">{{ episode.script }}</div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}
