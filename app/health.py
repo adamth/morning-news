@@ -482,7 +482,7 @@ def run_liveness_checks() -> HealthReport:
         _run_check(
             check_id="ffmpeg",
             name="Audio assembly",
-            description="Combines narration, intro music, and final MP3",
+            description="Combines narration, intro/outro music, and final MP3",
             group="system",
             required=True,
             probe=_probe_ffmpeg,

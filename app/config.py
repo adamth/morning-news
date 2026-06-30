@@ -83,6 +83,14 @@ class Config:
     def intro_path(self) -> Path:
         return self.data_dir / "intro.mp3"
 
+    @property
+    def outro_path(self) -> Path:
+        return self.data_dir / "outro.mp3"
+
+    @property
+    def artwork_path(self) -> Path:
+        return self.data_dir / "podcast-artwork.png"
+
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.episodes_dir.mkdir(parents=True, exist_ok=True)

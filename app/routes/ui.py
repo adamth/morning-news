@@ -176,6 +176,9 @@ def settings_page(
     intro_duration = (
         probe_duration(config.intro_path) if config.intro_path.exists() else None
     )
+    outro_duration = (
+        probe_duration(config.outro_path) if config.outro_path.exists() else None
+    )
     return templates.TemplateResponse(
         request,
         "settings.html",
@@ -190,6 +193,8 @@ def settings_page(
             "users": users,
             "intro_exists": config.intro_path.exists(),
             "intro_duration": intro_duration,
+            "outro_exists": config.outro_path.exists(),
+            "outro_duration": outro_duration,
         },
     )
 
@@ -481,6 +486,33 @@ async def save_intro(
         with open(config.intro_path, "wb") as handle:
             handle.write(data)
         message = "Intro+music+uploaded.+It+will+play+before+the+next+episode."
+
+    session.add(settings)
+    session.commit()
+    return RedirectResponse(f"/settings?msg={message}", status_code=303)
+
+
+@router.post("/settings/outro")
+async def save_outro(
+    user: User = Depends(web_user),
+    session: Session = Depends(get_session),
+    outro: UploadFile | None = File(None),
+    outro_enabled: str | None = Form(None),
+    outro_play_seconds: float = Form(2.0),
+):
+    settings = get_settings(session)
+    settings.outro_enabled = outro_enabled is not None
+    settings.outro_play_seconds = max(0.0, outro_play_seconds)
+    settings.updated_at = utcnow()
+
+    message = "Outro+settings+saved."
+    if outro is not None and outro.filename:
+        data = await outro.read()
+        if not data:
+            return RedirectResponse("/settings?err=That+file+was+empty.+Choose+a+different+MP3+and+try+again.", status_code=303)
+        with open(config.outro_path, "wb") as handle:
+            handle.write(data)
+        message = "Outro+music+uploaded.+It+will+play+after+the+next+episode."
 
     session.add(settings)
     session.commit()

@@ -13,7 +13,7 @@ Every day at a time you choose, it:
    messages**.
 2. Uses an LLM (via OpenRouter) to filter stories against your preferences (e.g. "no war
    or politics"), then writes a natural-sounding spoken script.
-3. Synthesizes lifelike speech with **ElevenLabs**, prepends your static intro music, and
+3. Synthesizes lifelike speech with **ElevenLabs**, prepends your static intro music, appends optional outro music, and
    normalizes loudness with ffmpeg.
 4. Publishes the episode to an **RSS feed** with show notes linking to each source article.
 
@@ -40,8 +40,22 @@ docker compose up -d --build
 ```
 
 Open `http://<host>:8080`, log in with the bootstrap credentials, then go to **Settings**
-to set your location, schedule, voice, and sources. Upload an intro `.mp3` if you'd like.
+to set your location, schedule, voice, and sources. Upload intro and outro `.mp3` files if you'd like.
 Copy the feed URL from the dashboard into your podcast app.
+
+Database, episodes, and uploaded audio are stored in a Docker named volume (`morning-news-data`)
+that survives image rebuilds and container recreation. To use a host directory instead (common on
+Unraid), copy `docker-compose.override.example.yml` to `docker-compose.override.yml`, set your
+host path, and redeploy.
+
+If you previously used the old `./data` bind mount, copy that folder into the volume once:
+
+```bash
+docker run --rm \
+  -v morning-news-data:/data \
+  -v "$(pwd)/data:/backup:ro" \
+  alpine sh -c 'cp -a /backup/. /data/'
+```
 
 ### Generate `SESSION_SECRET`
 
@@ -51,13 +65,19 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 ## Running on Unraid
 
-1. Add this repo to the server (or build the image elsewhere and push to a registry).
+1. Build and push the image (`npm run unraid:push`) or build locally on the NAS.
 2. Create a container from `morning-news:latest`.
-3. Map a host path to `/data` (database, episodes, and `intro.mp3` live here).
+3. **Map a host path to `/data`** — this is required. The database, episodes, and intro/outro
+   mp3 files live here. Without this mapping, each container recreate starts with an empty database.
+   A typical path is `/mnt/user/appdata/morning-news`.
 4. Map a host port to container port `8080`.
 5. Set the environment variables from `.env.example`. Optionally set `BASE_URL` if you
    need a fixed canonical URL for podcast feed links (otherwise URLs are derived from
    however clients reach the server).
+
+When updating to a new image, keep the same `/data` host mapping. Unraid's "Apply" on an
+existing container preserves volume mappings; if you recreate the container from scratch,
+re-add the host path before starting it.
 
 ## Local development
 

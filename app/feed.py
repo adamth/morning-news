@@ -3,12 +3,44 @@
 from __future__ import annotations
 
 import html
+import re
 from datetime import timezone
-from pathlib import Path
 
 from feedgen.feed import FeedGenerator
 
 from .db import Episode, EpisodeArticle, Settings
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _plain_text(value: str) -> str:
+    return html.unescape(_TAG_RE.sub("", value)).strip()
+
+
+def _episode_summary(episode: Episode, articles: list[EpisodeArticle]) -> str:
+    parts: list[str] = []
+    if episode.description:
+        parts.append(episode.description)
+    if episode.weather_summary:
+        parts.append(f"Weather: {episode.weather_summary}")
+    if episode.events_summary:
+        parts.append(f"Today: {episode.events_summary}")
+    if episode.market_summary:
+        parts.append(f"Market: {episode.market_summary}")
+    if articles:
+        parts.append("In this episode: " + "; ".join(article.title for article in articles))
+    return " ".join(parts) or "Your daily briefing."
+
+
+def _episode_subtitle(episode: Episode) -> str:
+    text = episode.description or episode.title
+    if len(text) <= 255:
+        return text
+    return text[:252].rstrip() + "..."
+
+
+def _artwork_url(base_url: str) -> str:
+    return f"{base_url}/podcast-artwork.png"
 
 
 def _show_notes_html(episode: Episode, articles: list[EpisodeArticle]) -> str:
@@ -54,19 +86,34 @@ def build_feed(
     fg.description(settings.podcast_description or settings.podcast_title)
     fg.podcast.itunes_author(settings.podcast_author)
     fg.podcast.itunes_summary(settings.podcast_description or settings.podcast_title)
-    fg.podcast.itunes_category("News")
+    fg.podcast.itunes_category({"cat": "News & Politics"})
     fg.podcast.itunes_explicit("no")
+    fg.podcast.itunes_type("episodic")
+    fg.podcast.itunes_image(_artwork_url(base_url))
+    if settings.podcast_description:
+        subtitle = settings.podcast_description.split(".")[0].strip()
+        if subtitle:
+            fg.podcast.itunes_subtitle(subtitle[:255])
 
     for episode, articles, byte_length in episodes:
         entry = fg.add_entry()
         media_url = f"{base_url}/media/{episode.id}.mp3?token={settings.feed_token}"
+        summary = _episode_summary(episode, articles)
+        show_notes = _show_notes_html(episode, articles)
         entry.id(media_url)
         entry.title(episode.title)
-        entry.description(_show_notes_html(episode, articles))
+        entry.description(show_notes)
         entry.enclosure(media_url, str(byte_length), "audio/mpeg")
         published = episode.created_at.replace(tzinfo=timezone.utc)
         entry.published(published)
         entry.link(href=f"{base_url}/episodes/{episode.id}")
+        entry.podcast.itunes_author(settings.podcast_author)
+        entry.podcast.itunes_summary(summary)
+        entry.podcast.itunes_subtitle(_episode_subtitle(episode))
+        entry.podcast.itunes_explicit("no")
+        entry.podcast.itunes_episode_type("full")
+        if episode.id is not None:
+            entry.podcast.itunes_episode(episode.id)
         if episode.duration_seconds:
             entry.podcast.itunes_duration(_format_duration(episode.duration_seconds))
 

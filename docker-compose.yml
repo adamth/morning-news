@@ -1,15 +1,18 @@
 services:
   morning-news:
     build: .
-    image: morning-news:latest
+    platform: linux/amd64
+    image: ${DOCKER_IMAGE:-morning-news:latest}
     container_name: morning-news
     restart: unless-stopped
     ports:
       # Host:Container. Change the host port if 8080 is taken on your Unraid box.
       - "8080:8080"
     volumes:
-      # Persist the database, generated episodes, and intro.mp3.
-      - ./data:/data
+      # Named volume survives image rebuilds and fresh git checkouts. For a host
+      # bind mount (e.g. Unraid appdata), copy docker-compose.override.example.yml
+      # to docker-compose.override.yml and set your path there.
+      - morning-news-data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=8)"]
       interval: 30s
@@ -29,3 +32,8 @@ services:
       # First-run login (only used when no users exist yet).
       BOOTSTRAP_USERNAME: "${BOOTSTRAP_USERNAME:-}"
       BOOTSTRAP_PASSWORD: "${BOOTSTRAP_PASSWORD:-}"
+
+volumes:
+  morning-news-data:
+    # Fixed name so the volume is reused even if the compose project name changes.
+    name: morning-news-data

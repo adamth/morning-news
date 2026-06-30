@@ -1,0 +1,11 @@
+# Optional: bind /data to a host directory instead of the default named volume.
+#
+#   cp docker-compose.override.example.yml docker-compose.override.yml
+#   # Edit the host path below, then: docker compose up -d
+#
+# docker-compose.override.yml is gitignored. Compose merges it automatically.
+
+services:
+  morning-news:
+    volumes:
+      - /mnt/user/appdata/morning-news:/data

@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 
 def _bootstrap() -> None:
+    database_path = config.data_dir / "morning_news.db"
+    if database_path.exists():
+        logger.info("Using database at %s", database_path)
+    else:
+        logger.info("Creating new database at %s", database_path)
     init_db()
     with Session(engine) as session:
         get_settings(session)  # ensure the singleton settings row exists

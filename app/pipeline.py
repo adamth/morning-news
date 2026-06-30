@@ -190,9 +190,17 @@ def _run(
     )
     speed_up_narration(voice_path)
 
-    # 10. Assemble with intro music + normalize.
+    # 10. Assemble with intro/outro music + normalize.
     intro = config.intro_path if (settings.intro_enabled and config.intro_path.exists()) else None
-    assemble_episode(voice_path, final_path, intro, intro_play_seconds=settings.intro_play_seconds)
+    outro = config.outro_path if (settings.outro_enabled and config.outro_path.exists()) else None
+    assemble_episode(
+        voice_path,
+        final_path,
+        intro,
+        intro_play_seconds=settings.intro_play_seconds,
+        outro_mp3=outro,
+        outro_play_seconds=settings.outro_play_seconds,
+    )
     voice_path.unlink(missing_ok=True)
 
     # 11. Finalize episode metadata.

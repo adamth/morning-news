@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -12,6 +13,8 @@ from ..config import config
 from ..db import Episode, get_session, get_settings
 
 router = APIRouter()
+
+_DEFAULT_ARTWORK = Path(__file__).resolve().parent.parent / "static" / "podcast-artwork.png"
 
 
 @router.get("/media/{episode_id}.mp3")
@@ -37,3 +40,12 @@ def episode_audio(
         media_type="audio/mpeg",
         filename=f"morning-news-{episode_id}.mp3",
     )
+
+
+@router.get("/podcast-artwork.png")
+def podcast_artwork():
+    artwork_file = config.artwork_path if config.artwork_path.exists() else _DEFAULT_ARTWORK
+    if not artwork_file.exists():
+        raise HTTPException(status_code=404, detail="Podcast artwork not found")
+
+    return FileResponse(artwork_file, media_type="image/png")

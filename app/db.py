@@ -92,6 +92,8 @@ class Settings(SQLModel, table=True):
     voice_model: str = "eleven_v3"
     intro_enabled: bool = True
     intro_play_seconds: float = 6.0  # full-volume play time before fade-out begins
+    outro_enabled: bool = True
+    outro_play_seconds: float = 2.0  # seconds of outro mixed with the end of narration
 
     # LLM
     openrouter_model: str = "openai/gpt-4o-mini"
@@ -184,6 +186,8 @@ def _migrate_schema() -> None:
         "ALTER TABLE settings ADD COLUMN admin1 TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN country TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN intro_play_seconds REAL DEFAULT 6.0",
+        "ALTER TABLE settings ADD COLUMN outro_enabled INTEGER DEFAULT 1",
+        "ALTER TABLE settings ADD COLUMN outro_play_seconds REAL DEFAULT 6.0",
         "ALTER TABLE settings ADD COLUMN preferred_categories TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN stocks_enabled INTEGER DEFAULT 0",
         "ALTER TABLE settings ADD COLUMN stocks_mature_reactions INTEGER DEFAULT 0",
