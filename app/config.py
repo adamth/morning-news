@@ -55,6 +55,7 @@ class Config:
 
     # External service credentials (optional at boot; features degrade if missing).
     elevenlabs_api_key: str | None = field(default_factory=lambda: env_str("ELEVENLABS_API_KEY"))
+    speechify_api_key: str | None = field(default_factory=lambda: env_str("SPEECHIFY_API_KEY"))
     openrouter_api_key: str | None = field(default_factory=lambda: env_str("OPENROUTER_API_KEY"))
     openai_api_key: str | None = field(default_factory=lambda: env_str("OPENAI_API_KEY"))
     anthropic_api_key: str | None = field(default_factory=lambda: env_str("ANTHROPIC_API_KEY"))

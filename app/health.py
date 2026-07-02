@@ -26,6 +26,15 @@ from .llm_providers import (
 from .sources.calendar import _try_http_ics
 from .sources.news import build_google_news_url
 from .sources import stocks
+from .sources.weather_providers import (
+    OPEN_METEO_FORECAST_URL,
+    WEATHER_PROVIDER_LABELS,
+    WEATHERAPI_FORECAST_URL,
+    WeatherProviderId,
+    weatherapi_configured,
+    resolve_weather_provider,
+)
+from .tts import TtsProviderId, resolve_tts_provider, tts_setup_hint
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +42,6 @@ _HTTP_TIMEOUT = 12.0
 _PASS_CACHE_TTL = timedelta(days=7)
 
 _CREDENTIAL_CHECKS: dict[str, Callable[[Credentials], str | None]] = {
-    "elevenlabs": lambda credentials: credentials.elevenlabs_api_key,
     "zyte": lambda credentials: credentials.zyte_api_key,
     "finnhub": lambda credentials: credentials.finnhub_api_key,
 }
@@ -267,7 +275,50 @@ def _probe_elevenlabs(credentials: Credentials) -> tuple[CheckStatus, str]:
         return CheckStatus.error, f"Could not reach the narration service: {error}"
     except ValueError as error:
         return CheckStatus.error, f"Unexpected response from narration service: {error}"
-    return CheckStatus.ok, f"Connected — {voice_count} voices available"
+    return CheckStatus.ok, f"ElevenLabs connected — {voice_count} voices available"
+
+
+def _probe_speechify(credentials: Credentials) -> tuple[CheckStatus, str]:
+    api_key = credentials.speechify_api_key
+    if not api_key:
+        return CheckStatus.unconfigured, "Add your Speechify API key in Settings → Connections"
+    try:
+        response = httpx.get(
+            "https://api.speechify.ai/v1/voices",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=_HTTP_TIMEOUT,
+        )
+        if response.status_code == 401:
+            return CheckStatus.error, "Narration API key was rejected — update it in Settings → Connections"
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, dict):
+            voice_count = len(payload.get("voices") or [])
+        else:
+            voice_count = len(payload or [])
+    except httpx.HTTPError as error:
+        return CheckStatus.error, f"Could not reach the narration service: {error}"
+    except ValueError as error:
+        return CheckStatus.error, f"Unexpected response from narration service: {error}"
+    return CheckStatus.ok, f"Speechify connected — {voice_count} voices available"
+
+
+def _probe_narration(settings: Settings, credentials: Credentials) -> tuple[CheckStatus, str]:
+    provider = resolve_tts_provider(
+        credentials=credentials, settings_provider=settings.tts_provider
+    )
+    if not credentials.elevenlabs_api_key and not credentials.speechify_api_key:
+        return (
+            CheckStatus.unconfigured,
+            "Add an ElevenLabs or Speechify API key in Settings → Connections",
+        )
+    if provider is TtsProviderId.speechify:
+        if not credentials.speechify_api_key:
+            return CheckStatus.error, tts_setup_hint(provider)
+        return _probe_speechify(credentials)
+    if not credentials.elevenlabs_api_key:
+        return CheckStatus.error, tts_setup_hint(provider)
+    return _probe_elevenlabs(credentials)
 
 
 def _probe_llm(settings: Settings, credentials: Credentials) -> tuple[CheckStatus, str]:
@@ -393,26 +444,78 @@ def _probe_open_meteo_geocoding() -> tuple[CheckStatus, str]:
     return CheckStatus.ok, "Geocoding API is reachable"
 
 
-def _probe_open_meteo_forecast(settings: Settings) -> tuple[CheckStatus, str]:
+def _probe_weather_forecast(
+    settings: Settings,
+    credentials: Credentials,
+) -> tuple[CheckStatus, str]:
     if not settings.weather_enabled:
         return CheckStatus.skipped, "Weather is turned off on Settings → Basic"
     if settings.latitude is None or settings.longitude is None:
         return CheckStatus.skipped, "Add your town on Settings → Basic to enable weather checks"
+
+    provider = resolve_weather_provider(settings.weather_provider)
+    label = WEATHER_PROVIDER_LABELS.get(provider, provider.value)
+    try:
+        if provider is WeatherProviderId.weatherapi:
+            if not weatherapi_configured(credentials.weatherapi_api_key):
+                return (
+                    CheckStatus.unconfigured,
+                    "Add a WeatherAPI.com key in Settings → Connections",
+                )
+            response = httpx.get(
+                WEATHERAPI_FORECAST_URL,
+                params={
+                    "key": credentials.weatherapi_api_key,
+                    "q": f"{settings.latitude},{settings.longitude}",
+                    "days": 1,
+                    "aqi": "no",
+                    "alerts": "no",
+                },
+                timeout=_HTTP_TIMEOUT,
+            )
+            response.raise_for_status()
+        else:
+            response = httpx.get(
+                OPEN_METEO_FORECAST_URL,
+                params={
+                    "latitude": settings.latitude,
+                    "longitude": settings.longitude,
+                    "daily": "weather_code,temperature_2m_max,temperature_2m_min",
+                    "timezone": settings.timezone or "UTC",
+                },
+                timeout=_HTTP_TIMEOUT,
+            )
+            response.raise_for_status()
+    except httpx.HTTPError as error:
+        return CheckStatus.error, f"Could not reach {label} forecast: {error}"
+    return CheckStatus.ok, f"{label} forecast API is reachable for your location"
+
+
+def _probe_weatherapi(credentials: Credentials) -> tuple[CheckStatus, str]:
+    api_key = credentials.weatherapi_api_key
+    if not api_key:
+        return (
+            CheckStatus.unconfigured,
+            "Add a WeatherAPI.com key in Settings → Connections (free tier at weatherapi.com)",
+        )
     try:
         response = httpx.get(
-            "https://api.open-meteo.com/v1/forecast",
+            WEATHERAPI_FORECAST_URL,
             params={
-                "latitude": settings.latitude,
-                "longitude": settings.longitude,
-                "daily": "weather_code,temperature_2m_max,temperature_2m_min",
-                "timezone": settings.timezone or "UTC",
+                "key": api_key,
+                "q": "51.5074,-0.1278",
+                "days": 1,
+                "aqi": "no",
+                "alerts": "no",
             },
             timeout=_HTTP_TIMEOUT,
         )
         response.raise_for_status()
+        if not (response.json().get("forecast") or {}).get("forecastday"):
+            return CheckStatus.error, "WeatherAPI.com responded but returned no forecast data"
     except httpx.HTTPError as error:
-        return CheckStatus.error, f"Could not reach Open-Meteo forecast: {error}"
-    return CheckStatus.ok, "Forecast API is reachable for your location"
+        return CheckStatus.error, f"Could not reach WeatherAPI.com: {error}"
+    return CheckStatus.ok, "Connected and returning forecasts"
 
 
 def _probe_location(settings: Settings) -> tuple[CheckStatus, str]:
@@ -566,15 +669,13 @@ def run_health_checks(session: Session, *, force_all: bool = False) -> HealthRep
 
     checks: list[HealthCheck] = [
         *run_liveness_checks().checks,
-        _run_cached_api_key_check(
-            session,
-            force_all=force_all,
-            check_id="elevenlabs",
+        _run_check(
+            check_id="tts",
             name="Episode narration",
             description="Turns the written script into spoken audio",
+            group="api_keys",
             required=True,
-            credentials=credentials,
-            probe=lambda: _probe_elevenlabs(credentials),
+            probe=lambda: _probe_narration(settings, credentials),
         ),
         _run_check(
             check_id="llm",
@@ -604,6 +705,16 @@ def run_health_checks(session: Session, *, force_all: bool = False) -> HealthRep
             credentials=credentials,
             probe=lambda: _probe_finnhub(credentials),
         ),
+        _run_cached_api_key_check(
+            session,
+            force_all=force_all,
+            check_id="weatherapi",
+            name="WeatherAPI.com",
+            description="Daily forecast when WeatherAPI.com is your weather source",
+            required=False,
+            credentials=credentials,
+            probe=lambda: _probe_weatherapi(credentials),
+        ),
         _run_check(
             check_id="newsdata",
             name="NewsData.io",
@@ -629,12 +740,12 @@ def run_health_checks(session: Session, *, force_all: bool = False) -> HealthRep
             probe=_probe_open_meteo_geocoding,
         ),
         _run_check(
-            check_id="open_meteo_forecast",
+            check_id="weather_forecast",
             name="Weather forecast",
-            description="Tomorrow's weather in your episode",
+            description="Today's weather in your episode",
             group="services",
             required=False,
-            probe=lambda: _probe_open_meteo_forecast(settings),
+            probe=lambda: _probe_weather_forecast(settings, credentials),
         ),
         _run_check(
             check_id="google_news",

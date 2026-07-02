@@ -72,6 +72,7 @@ class Settings(SQLModel, table=True):
     news_gl: str = "US"  # geographic edition
     news_ceid: str = "US:en"  # country:language edition pair
     weather_enabled: bool = True
+    weather_provider: str = "open_meteo"  # weatherapi | open_meteo
 
     # Stocks
     stocks_enabled: bool = False
@@ -88,11 +89,13 @@ class Settings(SQLModel, table=True):
     target_minutes_max: float = 3.0
 
     # TTS
+    tts_provider: str = ""  # elevenlabs | speechify; empty = auto-detect from saved keys
     voice_id: str = "JBFqnCBsd6RMkjVDRZzb"
     voice_model: str = "eleven_v3"
     voice_language: str = ""  # empty = derive from news_hl
     voice_accent: str = ""  # empty = any accent
     voice_randomize: bool = False
+    speechify_emotion: str = ""  # Speechify SSML emotion; empty = natural delivery
     intro_enabled: bool = True
     intro_play_seconds: float = 6.0  # full-volume play time before fade-out begins
     outro_enabled: bool = True
@@ -105,6 +108,7 @@ class Settings(SQLModel, table=True):
 
     # API credentials (Fernet-encrypted; enter via Settings → Connections)
     elevenlabs_api_key_enc: str = ""
+    speechify_api_key_enc: str = ""
     openrouter_api_key_enc: str = ""
     openai_api_key_enc: str = ""
     anthropic_api_key_enc: str = ""
@@ -112,6 +116,7 @@ class Settings(SQLModel, table=True):
     zyte_api_key_enc: str = ""
     finnhub_api_key_enc: str = ""
     newsdata_api_key_enc: str = ""
+    weatherapi_api_key_enc: str = ""
 
     # Podcast metadata
     podcast_title: str = "Morning News"
@@ -129,6 +134,9 @@ class Source(SQLModel, table=True):
     url: str
     name: str = ""
     enabled: bool = True
+    # Low-volume feeds (a few stories a week) whose new articles must always
+    # make the episode instead of competing with the daily headline firehose.
+    priority: bool = False
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -187,6 +195,22 @@ class EpisodeArticle(SQLModel, table=True):
     url: str
 
 
+class EpisodeLogEntry(SQLModel, table=True):
+    """One auditable step during episode generation (API call, AI prompt, etc.)."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    episode_id: int = Field(index=True, foreign_key="episode.id")
+    category: str = Field(index=True)
+    operation: str
+    status: str = "success"
+    summary: str = ""
+    request_data: str = ""
+    response_data: str = ""
+    duration_ms: float | None = None
+    sequence: int = 0
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _migrate_schema()
@@ -227,6 +251,8 @@ def _migrate_schema() -> None:
         "UPDATE settings SET llm_model = openrouter_model WHERE (llm_model IS NULL OR llm_model = '') AND openrouter_model IS NOT NULL AND openrouter_model != ''",
         "ALTER TABLE settings ADD COLUMN llm_base_url TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN elevenlabs_api_key_enc TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN speechify_api_key_enc TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN tts_provider TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN openrouter_api_key_enc TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN openai_api_key_enc TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN anthropic_api_key_enc TEXT DEFAULT ''",
@@ -234,6 +260,13 @@ def _migrate_schema() -> None:
         "ALTER TABLE settings ADD COLUMN zyte_api_key_enc TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN finnhub_api_key_enc TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN newsdata_api_key_enc TEXT DEFAULT ''",
+        "ALTER TABLE source ADD COLUMN priority INTEGER DEFAULT 0",
+        "ALTER TABLE settings ADD COLUMN speechify_emotion TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN weather_provider TEXT DEFAULT 'metno'",
+        "ALTER TABLE settings ADD COLUMN accuweather_api_key_enc TEXT DEFAULT ''",
+        "UPDATE settings SET weather_provider = 'metno' WHERE weather_provider IS NULL OR weather_provider = '' OR weather_provider = 'accuweather'",
+        "ALTER TABLE settings ADD COLUMN weatherapi_api_key_enc TEXT DEFAULT ''",
+        "UPDATE settings SET weather_provider = 'open_meteo' WHERE weather_provider = 'metno'",
     )
     with engine.connect() as connection:
         for statement in migrations:

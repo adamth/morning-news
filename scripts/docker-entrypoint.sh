@@ -14,13 +14,8 @@ if not os.path.ismount(data_dir):
         "Morning News stores its SQLite database, episodes, and uploads under /data.\n"
         "Without a host path or named volume mapped to /data, every image pull starts\n"
         "with an empty database.\n\n"
-        "Unraid — Docker UI:\n"
-        "  Path mapping: Host /mnt/user/appdata/morning-news → Container /data\n"
-        "  Then restart the container.\n\n"
-        "Unraid — recommended (docker compose in appdata):\n"
-        "  1. Copy docker-compose.unraid.yml and .env to /mnt/user/appdata/morning-news\n"
-        "  2. docker compose -f docker-compose.unraid.yml pull\n"
-        "  3. docker compose -f docker-compose.unraid.yml up -d\n\n",
+        "Map a named volume or host directory to /data (the provided\n"
+        "docker-compose.yml does this for you), then restart the container.\n\n",
         file=sys.stderr,
     )
     sys.exit(1)

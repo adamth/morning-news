@@ -11,6 +11,8 @@ from urllib.parse import quote
 import httpx
 
 from ..credentials import Credentials
+from ..episode_log import LogTimer, active_log
+from ..http_retry import httpx_request_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -181,19 +183,44 @@ def _fetch_finnhub_quote(
         lookup_symbols.append(alias)
 
     for lookup_symbol in lookup_symbols:
+        timer = LogTimer.start()
         try:
-            response = client.get(
-                FINNHUB_QUOTE_URL,
-                params={"symbol": lookup_symbol, "token": api_key},
+            response = httpx_request_with_retry(
+                lambda: client.get(
+                    FINNHUB_QUOTE_URL,
+                    params={"symbol": lookup_symbol, "token": api_key},
+                )
             )
             response.raise_for_status()
             payload = response.json()
             change_percent = payload.get("dp")
             current_price = payload.get("c")
+            audit = active_log()
+            if audit is not None:
+                audit.record(
+                    "stocks",
+                    "Finnhub quote",
+                    status="success" if change_percent is not None and current_price not in (None, 0) else "error",
+                    summary=f"{symbol}: {change_percent}%" if change_percent is not None else f"{symbol}: no data",
+                    request={"symbol": lookup_symbol, "requested_as": symbol},
+                    response={"change_percent": change_percent, "current_price": current_price},
+                    duration_ms=timer.elapsed_ms(),
+                )
             if change_percent is None or current_price in (None, 0):
                 continue
             return QuoteSnapshot(symbol=symbol, change_percent=float(change_percent))
         except (httpx.HTTPError, ValueError, TypeError) as error:
+            audit = active_log()
+            if audit is not None:
+                audit.record(
+                    "stocks",
+                    "Finnhub quote",
+                    status="error",
+                    summary=f"{lookup_symbol}: failed",
+                    request={"symbol": lookup_symbol},
+                    response={"error": str(error)},
+                    duration_ms=timer.elapsed_ms(),
+                )
             logger.warning("Finnhub quote lookup failed for %s: %s", lookup_symbol, error)
 
     return None
@@ -205,7 +232,7 @@ def _open_yahoo_session() -> tuple[httpx.Client | None, str | None]:
     try:
         warmup = client.get(YAHOO_WARMUP_URL)
         warmup.raise_for_status()
-        crumb_response = client.get(YAHOO_CRUMB_URL)
+        crumb_response = httpx_request_with_retry(lambda: client.get(YAHOO_CRUMB_URL))
         if crumb_response.status_code == 429:
             logger.info("Yahoo Finance rate-limited — use FINNHUB_API_KEY for reliable stock quotes")
             client.close()
@@ -229,21 +256,67 @@ def _fetch_yahoo_quote(
     if crumb:
         params["crumb"] = crumb
 
+    timer = LogTimer.start()
     try:
-        response = client.get(YAHOO_CHART_URL.format(symbol=encoded_symbol), params=params)
+        response = httpx_request_with_retry(
+            lambda: client.get(YAHOO_CHART_URL.format(symbol=encoded_symbol), params=params)
+        )
         if response.status_code == 429:
+            audit = active_log()
+            if audit is not None:
+                audit.record(
+                    "stocks",
+                    "Yahoo Finance quote",
+                    status="error",
+                    summary=f"{symbol}: rate limited",
+                    request={"symbol": symbol},
+                    response={"status_code": 429},
+                    duration_ms=timer.elapsed_ms(),
+                )
             return None
         response.raise_for_status()
         payload = response.json()
         result = (payload.get("chart") or {}).get("result") or []
         if not result:
+            audit = active_log()
+            if audit is not None:
+                audit.record(
+                    "stocks",
+                    "Yahoo Finance quote",
+                    status="error",
+                    summary=f"{symbol}: empty result",
+                    request={"symbol": symbol},
+                    duration_ms=timer.elapsed_ms(),
+                )
             return None
         meta = result[0].get("meta") or {}
         change_percent = _change_percent_from_yahoo(meta, result[0])
+        audit = active_log()
+        if audit is not None:
+            audit.record(
+                "stocks",
+                "Yahoo Finance quote",
+                status="success" if change_percent is not None else "error",
+                summary=f"{symbol}: {change_percent:.1f}%" if change_percent is not None else f"{symbol}: no data",
+                request={"symbol": symbol},
+                response={"change_percent": change_percent, "meta": meta},
+                duration_ms=timer.elapsed_ms(),
+            )
         if change_percent is None:
             return None
         return QuoteSnapshot(symbol=symbol, change_percent=change_percent)
     except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError) as error:
+        audit = active_log()
+        if audit is not None:
+            audit.record(
+                "stocks",
+                "Yahoo Finance quote",
+                status="error",
+                summary=f"{symbol}: failed",
+                request={"symbol": symbol},
+                response={"error": str(error)},
+                duration_ms=timer.elapsed_ms(),
+            )
         logger.warning("Yahoo quote lookup failed for %s: %s", symbol, error)
         return None
 

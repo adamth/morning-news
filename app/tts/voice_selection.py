@@ -166,5 +166,6 @@ def list_accent_options(
     language = resolve_voice_language(news_hl=news_hl, voice_language=voice_language)
     library_voices = provider.list_voices_matching(language=language)
     accents = {voice.accent.strip().lower() for voice in library_voices if voice.accent.strip()}
-    accents.update(FALLBACK_ACCENTS)
+    if not provider.lists_full_catalog:
+        accents.update(FALLBACK_ACCENTS)
     return sorted(accents)

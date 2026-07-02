@@ -10,6 +10,9 @@ from zoneinfo import ZoneInfo
 import httpx
 from icalendar import Calendar
 
+from ..episode_log import LogTimer, active_log
+from ..http_retry import httpx_request_with_retry
+
 logger = logging.getLogger(__name__)
 
 
@@ -82,14 +85,40 @@ def fetch_events(calendar_url: str, timezone_name: str = "UTC") -> list[Calendar
 
 
 def _try_http_ics(calendar_url: str) -> str | None:
+    timer = LogTimer.start()
     try:
-        response = httpx.get(calendar_url, timeout=25, follow_redirects=True)
+        response = httpx_request_with_retry(
+            lambda: httpx.get(calendar_url, timeout=25, follow_redirects=True)
+        )
         response.raise_for_status()
     except httpx.HTTPError as error:
         logger.info("Direct .ics fetch failed (will try CalDAV): %s", error)
+        audit = active_log()
+        if audit is not None:
+            audit.record(
+                "calendar",
+                "Fetch .ics feed",
+                status="error",
+                summary="Direct fetch failed",
+                request={"url": calendar_url},
+                response={"error": str(error)},
+                duration_ms=timer.elapsed_ms(),
+            )
         return None
     text = response.text
-    if "BEGIN:VCALENDAR" in text:
+    valid = "BEGIN:VCALENDAR" in text
+    audit = active_log()
+    if audit is not None:
+        audit.record(
+            "calendar",
+            "Fetch .ics feed",
+            status="success" if valid else "error",
+            summary=f"{len(text)} bytes" if valid else "Not a valid calendar",
+            request={"url": calendar_url},
+            response={"bytes": len(text), "valid": valid},
+            duration_ms=timer.elapsed_ms(),
+        )
+    if valid:
         return text
     return None
 
@@ -101,12 +130,23 @@ def _try_caldav(calendar_url: str, today: date, timezone: ZoneInfo) -> list[Cale
         logger.warning("caldav library unavailable; cannot read CalDAV URL")
         return []
 
+    timer = LogTimer.start()
     try:
         client = caldav.DAVClient(url=calendar_url)
         principal = client.principal()
         calendars = principal.calendars()
     except Exception as error:  # caldav raises a broad range of errors
         logger.warning("CalDAV connection failed: %s", error)
+        audit = active_log()
+        if audit is not None:
+            audit.record(
+                "calendar",
+                "CalDAV connection",
+                status="error",
+                request={"url": calendar_url},
+                response={"error": str(error)},
+                duration_ms=timer.elapsed_ms(),
+            )
         return []
 
     start = datetime.combine(today, time.min, tzinfo=timezone)
@@ -118,4 +158,14 @@ def _try_caldav(calendar_url: str, today: date, timezone: ZoneInfo) -> list[Cale
                 events.extend(_events_today(found.data, today, timezone))
         except Exception as error:
             logger.warning("CalDAV calendar search failed: %s", error)
+    audit = active_log()
+    if audit is not None:
+        audit.record(
+            "calendar",
+            "CalDAV search",
+            summary=f"{len(events)} event(s) from {len(calendars)} calendar(s)",
+            request={"url": calendar_url, "date": today.isoformat()},
+            response={"events": [event.describe(timezone) for event in events]},
+            duration_ms=timer.elapsed_ms(),
+        )
     return events

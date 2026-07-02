@@ -1,25 +1,20 @@
 <nav class="settings-tabs" aria-label="Settings sections">
   <a
     href="/settings"
-    class="settings-tab{% if settings_tab == 'basic' %} is-active{% endif %}"
-    {% if settings_tab == 'basic' %}aria-current="page"{% endif %}
-  >Basic</a>
+    class="settings-tab{% if settings_tab == 'show' %} is-active{% endif %}"
+    {% if settings_tab == 'show' %}aria-current="page"{% endif %}
+  >Your show</a>
   <a
-    href="/settings/advanced"
-    class="settings-tab{% if settings_tab == 'advanced' %} is-active{% endif %}"
-    {% if settings_tab == 'advanced' %}aria-current="page"{% endif %}
-  >Advanced</a>
+    href="/settings/household"
+    class="settings-tab{% if settings_tab == 'household' %} is-active{% endif %}"
+    {% if settings_tab == 'household' %}aria-current="page"{% endif %}
+  >Household</a>
   <a
-    href="/settings/connections"
-    class="settings-tab{% if settings_tab == 'connections' %} is-active{% endif %}"
-    {% if settings_tab == 'connections' %}aria-current="page"{% endif %}
-  >Connections</a>
-  <a
-    href="/settings/status"
-    class="settings-tab{% if settings_tab == 'status' %} is-active{% endif %}"
-    {% if settings_tab == 'status' %}aria-current="page"{% endif %}
+    href="/settings/plumbing"
+    class="settings-tab{% if settings_tab == 'plumbing' %} is-active{% endif %}"
+    {% if settings_tab == 'plumbing' %}aria-current="page"{% endif %}
   >
-    System status
+    Plumbing
     {% if request.state.health_has_issues %}
     <span
       class="settings-tab-badge"

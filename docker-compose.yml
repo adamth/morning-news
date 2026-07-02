@@ -2,16 +2,16 @@ services:
   morning-news:
     build: .
     platform: linux/amd64
-    image: ${DOCKER_IMAGE:-morning-news:latest}
+    image: morning-news:latest
     container_name: morning-news
     restart: unless-stopped
     ports:
-      # Host:Container. Change the host port if 8080 is taken on your Unraid box.
+      # Host:Container. Change the host port if 8080 is taken.
       - "8080:8080"
     volumes:
       # Named volume survives image rebuilds and fresh git checkouts. For a host
-      # bind mount (e.g. Unraid appdata), copy docker-compose.override.example.yml
-      # to docker-compose.override.yml and set your path there.
+      # bind mount, copy docker-compose.override.example.yml to
+      # docker-compose.override.yml and set your path there.
       - morning-news-data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=8)"]
@@ -26,6 +26,7 @@ services:
       SESSION_SECRET: "${SESSION_SECRET:?set SESSION_SECRET}"
       # API keys.
       ELEVENLABS_API_KEY: "${ELEVENLABS_API_KEY:-}"
+      SPEECHIFY_API_KEY: "${SPEECHIFY_API_KEY:-}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"

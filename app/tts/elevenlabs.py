@@ -5,14 +5,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from ..credentials import Credentials
 from .base import TtsProvider, TtsVoice
 
 logger = logging.getLogger(__name__)
-
-
-class TtsError(RuntimeError):
-    pass
 
 
 class ElevenLabsProvider(TtsProvider):
@@ -28,7 +23,15 @@ class ElevenLabsProvider(TtsProvider):
             self._client = ElevenLabs(api_key=self._api_key)
         return self._client
 
-    def synthesize(self, text: str, output_path: Path, *, voice_id: str, model_id: str) -> Path:
+    def synthesize(
+        self,
+        text: str,
+        output_path: Path,
+        *,
+        voice_id: str,
+        model_id: str,
+        emotion: str = "",
+    ) -> Path:
         # mp3_44100_128 is a good quality/size balance for spoken word.
         audio = self.client.text_to_speech.convert(
             voice_id=voice_id,
@@ -105,9 +108,3 @@ class ElevenLabsProvider(TtsProvider):
             accent=(labels.get("accent") or ""),
             language=(labels.get("language") or ""),
         )
-
-
-def get_provider(*, credentials: Credentials) -> TtsProvider:
-    if not credentials.elevenlabs_api_key:
-        raise TtsError("Add your ElevenLabs API key in Settings → Connections")
-    return ElevenLabsProvider(credentials.elevenlabs_api_key)

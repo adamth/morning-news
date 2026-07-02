@@ -7,32 +7,32 @@
   --font-serif: "Literata", Georgia, "Times New Roman", serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Canvas — cool periwinkle base with room for color */
-  --color-bg: oklch(97.2% 0.022 280);
-  --color-surface: oklch(99.6% 0.01 280);
-  --color-emphasis: oklch(94.5% 0.055 285);
-  --color-border: oklch(86% 0.038 280);
-  --color-ink: oklch(24% 0.055 280);
-  --color-muted: oklch(48% 0.045 280);
+  /* Canvas — sage-tinted neutrals ("The Kitchen Radio"): tint is felt, not seen */
+  --color-bg: oklch(97.3% 0.008 150);
+  --color-surface: oklch(99.3% 0.004 150);
+  --color-emphasis: oklch(94.5% 0.018 150);
+  --color-border: oklch(87% 0.015 150);
+  --color-ink: oklch(25% 0.02 155);
+  --color-muted: oklch(46% 0.025 152);
 
-  /* Primary — electric violet */
-  --color-accent: oklch(58% 0.24 285);
-  --color-accent-strong: oklch(50% 0.26 282);
-  --color-accent-soft: oklch(93% 0.055 285);
+  /* Primary — sage: garden green, muted on purpose (The One Voice Rule) */
+  --color-accent: oklch(50% 0.09 152);
+  --color-accent-strong: oklch(42% 0.1 152);
+  --color-accent-soft: oklch(93% 0.03 152);
 
-  /* Secondary accents */
-  --color-coral: oklch(68% 0.19 35);
-  --color-coral-strong: oklch(58% 0.21 32);
-  --color-sky: oklch(58% 0.16 235);
-  --color-sky-soft: oklch(93% 0.045 235);
+  /* Functional secondaries — subdued, never decorative */
+  --color-coral: oklch(62% 0.13 35);
+  --color-coral-strong: oklch(52% 0.14 32);
+  --color-sky: oklch(50% 0.05 230);
+  --color-sky-soft: oklch(93% 0.02 230);
 
-  /* Semantic */
-  --color-good: oklch(56% 0.17 165);
-  --color-good-soft: oklch(93% 0.045 165);
-  --color-danger: oklch(58% 0.22 22);
-  --color-danger-soft: oklch(94% 0.04 22);
-  --color-warn: oklch(70% 0.16 85);
-  --color-warn-soft: oklch(95% 0.05 85);
+  /* Semantic — success stays in the sage family */
+  --color-good: oklch(48% 0.11 155);
+  --color-good-soft: oklch(93% 0.035 155);
+  --color-danger: oklch(50% 0.18 25);
+  --color-danger-soft: oklch(95% 0.03 25);
+  --color-warn: oklch(52% 0.12 80);
+  --color-warn-soft: oklch(95% 0.04 85);
 }
 
 @layer base {
@@ -64,7 +64,7 @@
   input[type="file"],
   textarea,
   select {
-    @apply mt-1.5 w-full rounded-md border border-border bg-surface/80 px-3 py-2.5 text-base text-ink placeholder:text-muted/70 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20;
+    @apply mt-1.5 w-full rounded-md border border-border bg-surface/80 px-3 py-2.5 text-base text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20;
   }
 
   textarea {
@@ -73,7 +73,7 @@
 
   select {
     @apply cursor-pointer appearance-none bg-[length:12px_8px] bg-[position:right_12px_center] bg-no-repeat pr-10;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%235a5080' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%235c6e60' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
   }
 
   button {
@@ -146,7 +146,7 @@
   }
 
   .show-heading {
-    @apply font-semibold text-accent-strong;
+    @apply font-semibold text-ink;
   }
 
   .show-summary {
@@ -154,7 +154,7 @@
   }
 
   .show-details {
-    @apply mt-5 grid gap-3.5 border-t border-accent/20 pt-5;
+    @apply mt-5 grid gap-3.5 border-t border-border/70 pt-5;
   }
 
   .show-detail {
@@ -163,26 +163,6 @@
 
   .show-detail dt {
     @apply m-0 font-sans text-sm font-semibold text-muted;
-  }
-
-  .show-detail-weather dt,
-  .show-detail-building dt {
-    @apply text-sky;
-  }
-
-  .show-detail-calendar dt,
-  .show-detail-notes dt,
-  .show-detail-queued dt {
-    @apply text-coral-strong;
-  }
-
-  .show-detail-stories dt,
-  .show-detail-schedule dt {
-    @apply text-accent-strong;
-  }
-
-  .show-detail-location dt {
-    @apply text-accent;
   }
 
   .show-detail dd {
@@ -305,6 +285,88 @@
     @apply border-danger/25 bg-danger-soft text-ink;
   }
 
+  .toast-root {
+    @apply pointer-events-none fixed inset-x-0 top-[4.75rem] z-50 flex justify-center px-4;
+  }
+
+  .toast {
+    @apply pointer-events-auto relative grid max-w-[22rem] grid-cols-[auto_1fr_auto] items-start gap-x-3 gap-y-0 overflow-hidden rounded-xl border py-3.5 pl-3.5 pr-2.5 text-sm shadow-[0_10px_32px_-12px_oklch(25%_0.02_155_/_0.22),0_2px_8px_-2px_oklch(25%_0.02_155_/_0.08)] backdrop-blur-md opacity-0 translate-y-[-0.4rem] scale-[0.985] transition-[opacity,transform] duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)];
+  }
+
+  .toast-visible {
+    @apply opacity-100 translate-y-0 scale-100;
+  }
+
+  .toast-leaving {
+    @apply opacity-0 translate-y-[-0.25rem] scale-[0.99] duration-[220ms] ease-in;
+  }
+
+  .toast-success {
+    @apply border-good/30 bg-surface/95 text-ink;
+  }
+
+  .toast-error {
+    @apply border-danger/30 bg-surface/95 text-ink;
+  }
+
+  .toast-icon {
+    @apply mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full;
+  }
+
+  .toast-icon svg {
+    @apply size-[1.125rem];
+  }
+
+  .toast-success .toast-icon {
+    @apply bg-good-soft text-good;
+  }
+
+  .toast-error .toast-icon {
+    @apply bg-danger-soft text-danger;
+  }
+
+  .toast-body {
+    @apply min-w-0 pt-0.5 pr-1;
+  }
+
+  .toast-message {
+    @apply m-0 text-[0.9375rem] leading-snug text-ink;
+  }
+
+  .toast-dismiss {
+    @apply mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border-0 bg-transparent text-muted transition-colors hover:bg-emphasis/80 hover:text-ink;
+  }
+
+  .toast-dismiss svg {
+    @apply size-4;
+  }
+
+  .toast-progress {
+    @apply pointer-events-none absolute inset-x-0 bottom-0 h-[2px] origin-left scale-x-100 bg-accent/70;
+    animation: toast-progress-shrink linear forwards;
+  }
+
+  .toast-success .toast-progress {
+    @apply bg-good/70;
+  }
+
+  .toast-error .toast-progress {
+    @apply bg-danger/70;
+  }
+
+  .toast-progress.is-paused {
+    animation-play-state: paused;
+  }
+
+  @keyframes toast-progress-shrink {
+    from {
+      transform: scaleX(1);
+    }
+    to {
+      transform: scaleX(0);
+    }
+  }
+
   .badge {
     @apply text-xs font-semibold uppercase tracking-wider;
   }
@@ -353,8 +415,13 @@
     @apply flex items-start justify-between gap-4 border-t border-border/70 py-4 first:border-t-0 first:pt-0;
   }
 
+  .list-row > div:first-child {
+    @apply min-w-0;
+  }
+
   .list-meta {
     @apply mt-1 text-sm text-muted;
+    overflow-wrap: anywhere;
   }
 
   .panel summary {
@@ -382,7 +449,7 @@
   }
 
   .code-inline {
-    @apply rounded-md bg-accent-soft px-1.5 py-0.5 font-mono text-sm text-accent-strong;
+    @apply rounded-md bg-emphasis px-1.5 py-0.5 font-mono text-sm text-ink;
   }
 
   .location-field {
@@ -430,11 +497,11 @@
   }
 
   .data-table th {
-    @apply border-b border-border/70 bg-accent-soft/30 px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted;
+    @apply border-b border-border/70 bg-emphasis/50 px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted;
   }
 
   .data-table td {
-    @apply border-b border-border/60 px-3 py-2 align-middle;
+    @apply border-b border-border/60 px-3 py-2.5 align-middle;
   }
 
   .data-table tbody tr:last-child td {
@@ -446,7 +513,7 @@
   }
 
   .data-table-add-row td {
-    @apply bg-accent-soft/20;
+    @apply bg-emphasis/40;
   }
 
   .data-table-add-row input[type="text"] {
@@ -459,6 +526,10 @@
 
   .form-actions {
     @apply mt-6 flex flex-wrap items-center gap-3;
+  }
+
+  .form-unsaved {
+    @apply text-sm text-coral-strong;
   }
 
   .form-actions-block button {
@@ -555,7 +626,7 @@
   }
 
   .settings-heading {
-    @apply flex flex-wrap items-center gap-x-3 gap-y-2 text-accent-strong;
+    @apply flex flex-wrap items-center gap-x-3 gap-y-2 text-ink;
   }
 
   .settings-heading-title {
@@ -599,9 +670,44 @@
     @apply font-sans text-sm font-normal normal-case tracking-normal text-muted;
   }
 
+  .setup-checklist {
+    @apply mb-8 rounded-xl border border-border/80 bg-surface/90 p-6;
+  }
+
+  .setup-checklist-title {
+    @apply mb-4 font-serif text-lg font-semibold text-ink;
+  }
+
+  .setup-steps {
+    @apply m-0 flex list-none flex-col gap-3 p-0;
+  }
+
+  .setup-step {
+    @apply flex items-baseline gap-3 text-sm text-ink;
+  }
+
+  .setup-step-mark {
+    @apply flex h-6 w-6 shrink-0 translate-y-1 items-center justify-center self-start rounded-full border border-border text-xs font-semibold text-muted;
+  }
+
+  .setup-step-done .setup-step-mark {
+    @apply border-good/40 bg-good-soft text-good;
+  }
+
+  .setup-step-done .setup-step-body {
+    @apply text-muted;
+  }
+
+  .status-group {
+    @apply mt-6 first-of-type:mt-0;
+  }
+
+  .status-group-title {
+    @apply mb-2 font-sans text-sm font-semibold text-ink;
+  }
+
   .settings-divider {
     @apply my-8 border-0 border-t border-border/70;
-    border-top-color: color-mix(in oklab, var(--color-accent) 22%, var(--color-border));
   }
 
   .settings-fields {
@@ -640,6 +746,14 @@
 
   .settings-form .field-hint {
     @apply mt-0;
+  }
+
+  .voice-preview {
+    @apply mt-1;
+  }
+
+  .voice-preview audio {
+    @apply w-full max-w-md;
   }
 
   .settings-form .checkbox-inline {
@@ -720,6 +834,11 @@
 
   .status-detail {
     @apply mt-1 text-sm text-muted;
+    overflow-wrap: anywhere;
+  }
+
+  .status-row-main > div {
+    @apply min-w-0;
   }
 
   .status-badge {
@@ -743,7 +862,7 @@
   }
 
   .settings-nested {
-    @apply mt-4 rounded-lg border border-border/60 bg-accent-soft/30 p-4;
+    @apply mt-4 rounded-lg border border-border/60 bg-emphasis/50 p-4;
   }
 
   .settings-nested summary {
@@ -752,71 +871,6 @@
 
   .settings-nested summary::-webkit-details-marker {
     display: none;
-  }
-
-  .connections-form {
-    @apply max-w-prose;
-  }
-
-  .connections-intro {
-    @apply mb-8;
-  }
-
-  .connections-intro strong {
-    @apply font-medium text-accent-strong;
-  }
-
-  .connections-group {
-    @apply flex flex-col;
-  }
-
-  .connections-group > .connections-heading {
-    @apply mb-3;
-  }
-
-  .connections-group > .connections-heading:not(:has(+ .connections-group-lead)) {
-    @apply mb-6;
-  }
-
-  .connections-group-lead {
-    @apply mb-6 mt-0 max-w-prose;
-  }
-
-  .connections-heading {
-    @apply flex flex-wrap items-center gap-x-3 gap-y-2 text-accent-strong;
-  }
-
-  .connections-heading-title {
-    @apply font-serif text-xl font-semibold tracking-tight text-balance;
-  }
-
-  .connections-heading-optional .connections-heading-title {
-    @apply text-muted;
-  }
-
-  .connections-heading .connections-tag {
-    @apply shrink-0 rounded-full border px-2.5 py-0.5 font-sans text-[0.6875rem] font-semibold uppercase tracking-wider;
-  }
-
-  .connections-tag-suggested {
-    @apply normal-case tracking-normal text-accent-strong;
-  }
-
-  .connections-divider {
-    @apply my-8 border-0 border-t border-border/70;
-    border-top-color: color-mix(in oklab, var(--color-accent) 22%, var(--color-border));
-  }
-
-  .connections-footnote {
-    @apply mt-8 border-t border-border/60 pt-6;
-  }
-
-  .connections-tag-required {
-    @apply border-coral/35 text-coral-strong;
-  }
-
-  .connections-tag-optional {
-    @apply border-sky/35 text-sky;
   }
 
   .connections-provider-list {
@@ -930,6 +984,78 @@
 
   .script-block {
     @apply max-h-[32rem] overflow-y-auto rounded-lg bg-accent-soft/40 px-4 py-4 text-sm leading-relaxed whitespace-pre-wrap;
+  }
+
+  .audit-log {
+    @apply flex flex-col gap-3;
+  }
+
+  .audit-group {
+    @apply rounded-lg border border-border/70 bg-bg/50;
+  }
+
+  .audit-group-summary {
+    @apply flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-sans text-sm font-medium text-ink;
+  }
+
+  .audit-group-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .audit-group-title {
+    @apply font-semibold text-accent-strong;
+  }
+
+  .audit-group-count {
+    @apply text-xs font-normal text-muted;
+  }
+
+  .audit-group-body {
+    @apply flex flex-col gap-2 border-t border-border/60 px-3 py-3;
+  }
+
+  .audit-entry {
+    @apply rounded-md border border-border/50 bg-surface/80;
+  }
+
+  .audit-entry-summary {
+    @apply flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2.5 text-sm;
+  }
+
+  .audit-entry-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .audit-entry-operation {
+    @apply min-w-0 flex-1 font-medium text-ink;
+  }
+
+  .audit-entry-duration {
+    @apply font-mono text-xs text-muted;
+  }
+
+  .audit-entry-body {
+    @apply border-t border-border/50 px-3 py-3;
+  }
+
+  .audit-entry-summary-text {
+    @apply mb-3 text-sm text-muted;
+  }
+
+  .audit-data-block + .audit-data-block {
+    @apply mt-3;
+  }
+
+  .audit-data-label {
+    @apply mb-1.5 font-sans text-xs font-semibold uppercase tracking-wider text-muted;
+  }
+
+  .audit-data-pre {
+    @apply overflow-x-auto rounded-md bg-accent-soft/30 px-3 py-2.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-ink;
+  }
+
+  .status-badge-success {
+    @apply border-good/30 bg-good-soft text-good;
   }
 
   .message-compose {

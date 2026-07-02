@@ -197,6 +197,8 @@ def chat_completion(
     user: str,
     temperature: float,
     json_mode: bool = False,
+    response_schema: dict[str, Any] | None = None,
+    response_schema_name: str = "response",
 ) -> str:
     if provider_config.provider is LlmProviderId.anthropic:
         return _anthropic_completion(
@@ -205,6 +207,7 @@ def chat_completion(
             system=system,
             user=user,
             temperature=temperature,
+            response_schema=response_schema,
         )
 
     client = openai_client(provider_config)
@@ -216,11 +219,74 @@ def chat_completion(
         ],
         "temperature": temperature,
     }
-    if json_mode:
+    if response_schema is not None:
+        kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": response_schema_name,
+                "strict": True,
+                "schema": response_schema,
+            },
+        }
+    elif json_mode:
         kwargs["response_format"] = {"type": "json_object"}
 
-    response = client.chat.completions.create(**kwargs)
-    return (response.choices[0].message.content or "").strip()
+    try:
+        response = client.chat.completions.create(**kwargs)
+    except Exception as error:
+        raise LlmProviderError(
+            f"{PROVIDER_LABELS[provider_config.provider]} request failed: {error}"
+        ) from error
+
+    content = _extract_openai_completion_content(response, provider_config)
+    if not content:
+        raise LlmProviderError(
+            f"{PROVIDER_LABELS[provider_config.provider]} returned an empty response "
+            f"(model: {provider_config.model})"
+        )
+    return content
+
+
+def _extract_openai_completion_content(
+    response: Any,
+    provider_config: LlmProviderConfig,
+) -> str:
+    if response is None:
+        raise LlmProviderError(
+            f"{PROVIDER_LABELS[provider_config.provider]} returned no response "
+            f"(model: {provider_config.model})"
+        )
+
+    choices = getattr(response, "choices", None)
+    if not choices:
+        raise LlmProviderError(
+            f"{PROVIDER_LABELS[provider_config.provider]} returned no completion choices "
+            f"(model: {provider_config.model})"
+        )
+
+    choice = choices[0]
+    message = getattr(choice, "message", None)
+    if message is None:
+        raise LlmProviderError(
+            f"{PROVIDER_LABELS[provider_config.provider]} returned a choice without a message "
+            f"(model: {provider_config.model})"
+        )
+
+    content = getattr(message, "content", None) or ""
+    refusal = getattr(message, "refusal", None)
+    if not content.strip() and refusal:
+        raise LlmProviderError(
+            f"{PROVIDER_LABELS[provider_config.provider]} refused the request: {refusal}"
+        )
+
+    finish_reason = getattr(choice, "finish_reason", None)
+    if not content.strip() and finish_reason:
+        raise LlmProviderError(
+            f"{PROVIDER_LABELS[provider_config.provider]} returned no content "
+            f"(finish_reason: {finish_reason}, model: {provider_config.model})"
+        )
+
+    return content.strip()
 
 
 def _anthropic_completion(
@@ -230,7 +296,23 @@ def _anthropic_completion(
     system: str,
     user: str,
     temperature: float,
+    response_schema: dict[str, Any] | None = None,
 ) -> str:
+    payload: dict[str, Any] = {
+        "model": model,
+        "max_tokens": 8192,
+        "system": system,
+        "messages": [{"role": "user", "content": user}],
+        "temperature": temperature,
+    }
+    if response_schema is not None:
+        payload["output_config"] = {
+            "format": {
+                "type": "json_schema",
+                "schema": response_schema,
+            }
+        }
+
     try:
         response = httpx.post(
             _ANTHROPIC_URL,
@@ -239,13 +321,7 @@ def _anthropic_completion(
                 "anthropic-version": _ANTHROPIC_VERSION,
                 "content-type": "application/json",
             },
-            json={
-                "model": model,
-                "max_tokens": 8192,
-                "system": system,
-                "messages": [{"role": "user", "content": user}],
-                "temperature": temperature,
-            },
+            json=payload,
             timeout=_HTTP_TIMEOUT,
         )
         if response.status_code == 401:

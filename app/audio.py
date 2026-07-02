@@ -13,9 +13,11 @@ logger = logging.getLogger(__name__)
 # EBU R128 targets suitable for spoken-word podcasts.
 _LOUDNORM = "loudnorm=I=-16:TP=-1.5:LRA=11"
 _STEREO = "aresample=44100,aformat=channel_layouts=stereo"
+# libmp3lame expects 1152-sample frames; amix/adelay can emit misaligned buffers.
+_MIX_OUTPUT = "aformat=sample_fmts=fltp:channel_layouts=stereo,asetnsamples=n=1152"
 
 # Playback speed for narration only (1.0 = normal). Applied via ffmpeg atempo after TTS.
-NARRATION_SPEED = 1.1
+NARRATION_SPEED = 1
 
 
 class AudioError(RuntimeError):
@@ -111,7 +113,7 @@ def _mix_intro(voice_mp3: Path, intro_mp3: Path, output_mp3: Path, intro_play_se
     filter_complex = (
         f"[0:a]{intro_filter}[intro];"
         f"[1:a]{voice_filter}[voice];"
-        "[intro][voice]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[out]"
+        f"[intro][voice]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,{_MIX_OUTPUT}[out]"
     )
     _encode_mp3(ffmpeg, output_mp3, inputs=[intro_mp3, voice_mp3], filter_complex=filter_complex, audio_filter=None)
 
@@ -124,7 +126,7 @@ def _mix_outro(voice_mp3: Path, outro_mp3: Path, output_mp3: Path, outro_play_se
     filter_complex = (
         f"[0:a]{_STEREO}[voice];"
         f"[1:a]{outro_chain}[outro];"
-        "[voice][outro]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[out]"
+        f"[voice][outro]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,{_MIX_OUTPUT}[out]"
     )
     _encode_mp3(ffmpeg, output_mp3, inputs=[voice_mp3, outro_mp3], filter_complex=filter_complex, audio_filter=None)
 

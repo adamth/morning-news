@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
+from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -28,16 +31,37 @@ from .db import (
 )
 from .news_categories import format_priorities, parse_selected
 from .sources import news, weather
-from .sources.calendar import fetch_events
+from .sources.calendar import CalendarEvent, fetch_events
+from .sources.weather import WeatherSummary
 from .sources import stocks
+from .episode_log import LogTimer, active_log, episode_audit_log
 from .health import refresh_health_report
-from .tts import build_narrator_opening, get_provider, resolve_episode_voice
+from .templating import format_spoken_date
+from .tts import (
+    TTS_PROVIDER_LABELS,
+    TtsProviderId,
+    build_narrator_opening,
+    get_provider,
+    normalize_voice_model,
+    resolve_episode_voice,
+    resolve_tts_provider,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class PipelineError(RuntimeError):
     pass
+
+
+@dataclass
+class _SourceGatherResult:
+    articles: list[news.Article]
+    weather_text: str
+    weather_summary: WeatherSummary | None
+    market_text: str
+    market_reaction: str
+    events: list[CalendarEvent]
 
 
 def generate_episode(session: Session) -> Episode:
@@ -58,7 +82,35 @@ def generate_episode(session: Session) -> Episode:
     session.refresh(episode)
 
     try:
-        _run(session, settings, credentials, episode, timezone, now_local)
+        with episode_audit_log(session, episode.id) as audit:
+            audit.record(
+                "pipeline",
+                "Start generation",
+                summary=f"Generating episode for {format_spoken_date(now_local)}",
+                request={
+                    "timezone": settings.timezone,
+                    "locality": settings.locality,
+                    "weather_enabled": settings.weather_enabled,
+                    "stocks_enabled": settings.stocks_enabled,
+                    "calendar_url_set": bool(settings.calendar_url.strip()),
+                    "llm_provider": settings.llm_provider or "(auto)",
+                    "llm_model": settings.llm_model,
+                    "target_minutes": [settings.target_minutes_min, settings.target_minutes_max],
+                },
+            )
+            try:
+                _run(session, settings, credentials, episode, timezone, now_local)
+            except Exception as error:
+                audit.record(
+                    "pipeline",
+                    "Generation failed",
+                    status="error",
+                    summary=str(error),
+                    response={"error": str(error)},
+                )
+                raise
+            finally:
+                audit.flush()
     except Exception as error:
         logger.exception("Episode generation failed")
         episode.status = EpisodeStatus.failed
@@ -83,48 +135,142 @@ def _run(
     timezone: ZoneInfo,
     now_local: datetime,
 ) -> None:
-    date_text = now_local.strftime("%A, %B %d, %Y")
+    date_text = format_spoken_date(now_local)
 
-    # 1. Gather news.
+    # 1. Gather news, weather, stocks, and calendar in parallel.
     sources = _news_sources(session, settings)
-    articles = news.gather_articles(sources, zyte_api_key=credentials.zyte_api_key)
-    logger.info("Gathered %d candidate articles", len(articles))
+    audit = active_log()
+    if audit is not None:
+        audit.record(
+            "news",
+            "Configure news sources",
+            summary=f"{len(sources)} feed(s) configured",
+            response=[
+                {
+                    "name": source.name,
+                    "url": source.url,
+                    "google_news": source.is_google_news,
+                    "priority": source.priority,
+                }
+                for source in sources
+            ],
+        )
 
-    # 2. Weather.
-    weather_text = ""
-    if settings.weather_enabled and settings.latitude is not None and settings.longitude is not None:
-        summary = weather.get_weather(settings.latitude, settings.longitude, settings.timezone)
-        if summary:
-            weather_text = summary.text
-
-    # 2b. Stock watchlist (aggregate performance only).
-    market_text = ""
-    market_reaction = ""
+    stock_symbols: list[str] = []
     if settings.stocks_enabled:
-        symbols = [
+        stock_symbols = [
             item.symbol
             for item in session.exec(
                 select(WatchlistItem).where(WatchlistItem.enabled == True)  # noqa: E712
             ).all()
         ]
-        if symbols:
-            summary = stocks.get_market_summary(
-                symbols,
-                credentials=credentials,
-                mature_reactions=settings.stocks_mature_reactions,
+
+    aired_urls, aired_titles = _aired_story_keys(session)
+
+    gather_timer = LogTimer.start()
+    gathered = _gather_source_data(
+        settings=settings,
+        credentials=credentials,
+        sources=sources,
+        stock_symbols=stock_symbols,
+        aired_urls=aired_urls,
+        aired_titles=aired_titles,
+    )
+    logger.info("Gathered %d candidate articles", len(gathered.articles))
+    if audit is not None:
+        audit.record(
+            "news",
+            "Gather articles",
+            summary=f"{len(gathered.articles)} candidate article(s) collected",
+            response={
+                "count": len(gathered.articles),
+                "articles": [
+                    {
+                        "title": article.title,
+                        "publisher": article.publisher,
+                        "url": article.url,
+                        "source": article.source_name,
+                        "content_chars": len(article.content),
+                    }
+                    for article in gathered.articles
+                ],
+            },
+            duration_ms=gather_timer.elapsed_ms(),
+        )
+        if settings.weather_enabled and settings.latitude is not None and settings.longitude is not None:
+            audit.record(
+                "weather",
+                "Fetch forecast",
+                status="success" if gathered.weather_text else "skipped",
+                summary=gathered.weather_text or "Weather unavailable",
+                request={
+                    "latitude": settings.latitude,
+                    "longitude": settings.longitude,
+                    "timezone": settings.timezone,
+                },
+                response={
+                    "text": gathered.weather_text or None,
+                    "temperature_max": (
+                        gathered.weather_summary.temperature_max if gathered.weather_summary else None
+                    ),
+                    "temperature_min": (
+                        gathered.weather_summary.temperature_min if gathered.weather_summary else None
+                    ),
+                },
             )
-            if summary:
-                market_text = summary.text
-                market_reaction = summary.reaction_hint
+        else:
+            audit.record(
+                "weather",
+                "Fetch forecast",
+                status="skipped",
+                summary="Weather disabled or location not set",
+            )
 
-    # 3. Calendar events.
-    events = fetch_events(settings.calendar_url, settings.timezone)
-    events_text = [event.describe(timezone) for event in events]
+        if settings.stocks_enabled:
+            if stock_symbols:
+                audit.record(
+                    "stocks",
+                    "Fetch watchlist quotes",
+                    status="success" if gathered.market_text else "error",
+                    summary=gathered.market_text or "No quotes returned",
+                    request={"symbols": stock_symbols, "mature_reactions": settings.stocks_mature_reactions},
+                    response={
+                        "text": gathered.market_text or None,
+                        "reaction_hint": gathered.market_reaction or None,
+                    },
+                )
+            else:
+                audit.record("stocks", "Fetch watchlist quotes", status="skipped", summary="Watchlist empty")
+        else:
+            audit.record("stocks", "Fetch watchlist quotes", status="skipped", summary="Stocks disabled")
 
-    # 4. Pending private messages (all users).
+        events_text = [event.describe(timezone) for event in gathered.events]
+        audit.record(
+            "calendar",
+            "Fetch today's events",
+            status="success" if settings.calendar_url.strip() else "skipped",
+            summary=f"{len(events_text)} event(s) today" if settings.calendar_url.strip() else "No calendar URL",
+            request={"calendar_url": settings.calendar_url or None, "timezone": settings.timezone},
+            response={"events": events_text},
+        )
+
+    articles = gathered.articles
+    weather_text = gathered.weather_text
+    market_text = gathered.market_text
+    market_reaction = gathered.market_reaction
+    events_text = [event.describe(timezone) for event in gathered.events]
+
+    # 2. Pending private messages (all users).
     messages = session.exec(
         select(Message).where(Message.status == MessageStatus.pending)
     ).all()
+    if audit is not None:
+        audit.record(
+            "messages",
+            "Load pending messages",
+            summary=f"{len(messages)} pending message(s)",
+            response=[{"id": message.id, "text": message.text} for message in messages],
+        )
 
     # 5. Summarize over-long articles to control token cost.
     _summarize_long_articles(articles, settings, credentials)
@@ -136,6 +282,7 @@ def _run(
             publisher=item.publisher,
             content=item.content,
             source_name=item.source_name,
+            priority=item.priority,
         )
         for index, item in enumerate(articles)
         if item.content
@@ -144,6 +291,7 @@ def _run(
     excluded_topics = _excluded_topics(session)
 
     # 6. Generate the script.
+    timer = LogTimer.start()
     content = llm.generate_episode(
         credentials=credentials,
         llm_provider=settings.llm_provider,
@@ -162,6 +310,21 @@ def _run(
         messages=message_inputs,
         articles=article_inputs,
     )
+    if audit is not None:
+        audit.record(
+            "llm",
+            "Write episode script",
+            summary=f"Title: {content.title}",
+            response={
+                "title": content.title,
+                "description": content.description,
+                "script_chars": len(content.script),
+                "used_article_ids": content.used_article_ids,
+                "used_message_ids": content.used_message_ids,
+                "script": content.script,
+            },
+            duration_ms=timer.elapsed_ms(),
+        )
 
     # 7. Persist show-note articles.
     used_articles = [articles[i] for i in content.used_article_ids if 0 <= i < len(articles)]
@@ -187,7 +350,11 @@ def _run(
     # 9. Synthesize speech.
     voice_path = config.episodes_dir / f"{episode.id}.voice.mp3"
     final_path = config.episodes_dir / f"{episode.id}.mp3"
-    provider = get_provider(credentials=credentials)
+    provider_id = resolve_tts_provider(
+        credentials=credentials, settings_provider=settings.tts_provider
+    )
+    provider = get_provider(credentials=credentials, settings_provider=settings.tts_provider)
+    voice_model = normalize_voice_model(provider_id, settings.voice_model)
     resolved_voice = resolve_episode_voice(
         provider,
         voice_id=settings.voice_id,
@@ -198,18 +365,37 @@ def _run(
         date_text=date_text,
     )
     narrator_opening = build_narrator_opening(resolved_voice.name, settings.podcast_title)
-    narration_text = f"{narrator_opening}\n\n{content.script}"
+    narration_text = f"{narrator_opening} {content.script}"
+    timer = LogTimer.start()
     provider.synthesize(
         narration_text,
         voice_path,
         voice_id=resolved_voice.voice_id,
-        model_id=settings.voice_model,
+        model_id=voice_model,
+        emotion=settings.speechify_emotion if provider_id is TtsProviderId.speechify else "",
     )
+    if audit is not None:
+        audit.record(
+            "tts",
+            "Synthesize narration",
+            summary=f"{len(narration_text)} characters via {TTS_PROVIDER_LABELS[provider_id]}",
+            request={
+                "voice_id": resolved_voice.voice_id,
+                "voice_name": resolved_voice.name,
+                "model_id": voice_model,
+                "emotion": settings.speechify_emotion if provider_id is TtsProviderId.speechify else "",
+                "text_chars": len(narration_text),
+                "text": narration_text,
+            },
+            response={"output_path": str(voice_path.name)},
+            duration_ms=timer.elapsed_ms(),
+        )
     speed_up_narration(voice_path)
 
     # 10. Assemble with intro/outro music + normalize.
     intro = config.intro_path if (settings.intro_enabled and config.intro_path.exists()) else None
     outro = config.outro_path if (settings.outro_enabled and config.outro_path.exists()) else None
+    timer = LogTimer.start()
     assemble_episode(
         voice_path,
         final_path,
@@ -218,6 +404,21 @@ def _run(
         outro_mp3=outro,
         outro_play_seconds=settings.outro_play_seconds,
     )
+    if audit is not None:
+        audit.record(
+            "audio",
+            "Assemble episode audio",
+            summary="Mixed narration with intro/outro and normalized loudness",
+            request={
+                "intro": intro.name if intro else None,
+                "intro_play_seconds": settings.intro_play_seconds,
+                "outro": outro.name if outro else None,
+                "outro_play_seconds": settings.outro_play_seconds,
+                "narration_speed": "1.1x",
+            },
+            response={"output_path": final_path.name},
+            duration_ms=timer.elapsed_ms(),
+        )
     voice_path.unlink(missing_ok=True)
 
     # 11. Finalize episode metadata.
@@ -233,14 +434,105 @@ def _run(
     session.add(episode)
     session.commit()
     session.refresh(episode)
+    if audit is not None:
+        audit.record(
+            "pipeline",
+            "Complete generation",
+            summary=f"Episode ready — {episode.duration_seconds and round(episode.duration_seconds / 60, 1)} min",
+            response={
+                "title": episode.title,
+                "duration_seconds": episode.duration_seconds,
+                "articles_used": len(used_articles),
+                "messages_used": len(used_message_ids),
+            },
+        )
     logger.info("Episode %s ready: %s", episode.id, episode.title)
+
+
+def _gather_source_data(
+    *,
+    settings: Settings,
+    credentials: Credentials,
+    sources: list[news.NewsSource],
+    stock_symbols: list[str],
+    aired_urls: set[str] | None = None,
+    aired_titles: set[str] | None = None,
+) -> _SourceGatherResult:
+    """Fetch news, weather, stocks, and calendar concurrently."""
+
+    tasks: dict[str, object] = {}
+
+    def fetch_news() -> list[news.Article]:
+        return news.gather_articles(
+            sources,
+            zyte_api_key=credentials.zyte_api_key,
+            exclude_urls=aired_urls,
+            exclude_titles=aired_titles,
+        )
+
+    def fetch_weather() -> tuple[str, WeatherSummary | None]:
+        if (
+            not settings.weather_enabled
+            or settings.latitude is None
+            or settings.longitude is None
+        ):
+            return "", None
+        summary = weather.get_weather(
+            settings.latitude,
+            settings.longitude,
+            settings.timezone,
+            provider=settings.weather_provider,
+            weatherapi_api_key=credentials.weatherapi_api_key,
+        )
+        return (summary.text, summary) if summary else ("", None)
+
+    def fetch_stocks() -> tuple[str, str]:
+        if not settings.stocks_enabled or not stock_symbols:
+            return "", ""
+        summary = stocks.get_market_summary(
+            stock_symbols,
+            credentials=credentials,
+            mature_reactions=settings.stocks_mature_reactions,
+        )
+        if summary is None:
+            return "", ""
+        return summary.text, summary.reaction_hint
+
+    def fetch_calendar():
+        return fetch_events(settings.calendar_url, settings.timezone)
+
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="gather") as executor:
+        tasks["news"] = executor.submit(copy_context().run, fetch_news)
+        tasks["weather"] = executor.submit(copy_context().run, fetch_weather)
+        tasks["stocks"] = executor.submit(copy_context().run, fetch_stocks)
+        tasks["calendar"] = executor.submit(copy_context().run, fetch_calendar)
+
+        articles = tasks["news"].result()
+        weather_text, weather_summary = tasks["weather"].result()
+        market_text, market_reaction = tasks["stocks"].result()
+        events = tasks["calendar"].result()
+
+    return _SourceGatherResult(
+        articles=articles,
+        weather_text=weather_text,
+        weather_summary=weather_summary,
+        market_text=market_text,
+        market_reaction=market_reaction,
+        events=events,
+    )
 
 
 def _news_sources(session: Session, settings: Settings) -> list[news.NewsSource]:
     sources: list[news.NewsSource] = []
 
     for source in session.exec(select(Source).where(Source.enabled == True)).all():  # noqa: E712
-        sources.append(news.NewsSource(url=source.url, name=source.name or source.url))
+        sources.append(
+            news.NewsSource(
+                url=source.url,
+                name=source.name or source.url,
+                priority=source.priority,
+            )
+        )
 
     admin1 = settings.admin1
     country = settings.country
@@ -270,6 +562,20 @@ def _news_sources(session: Session, settings: Settings) -> list[news.NewsSource]
     return sources
 
 
+def _aired_story_keys(session: Session) -> tuple[set[str], set[str]]:
+    """URLs and normalized titles of every article used in a past episode."""
+
+    urls: set[str] = set()
+    titles: set[str] = set()
+    for row in session.exec(select(EpisodeArticle)).all():
+        if row.url.strip():
+            urls.add(row.url)
+        title = row.title.strip().lower()
+        if title:
+            titles.add(title)
+    return urls, titles
+
+
 def _excluded_topics(session: Session) -> list[str]:
     from .db import Preference
 
@@ -282,10 +588,12 @@ def _summarize_long_articles(
     credentials: Credentials,
 ) -> None:
     limit = settings.max_article_length
+    audit = active_log()
     for article in articles:
         body = article.body
         if body and len(body) > limit:
             try:
+                timer = LogTimer.start()
                 article.body = llm.summarize_article(
                     body,
                     limit,
@@ -293,7 +601,32 @@ def _summarize_long_articles(
                     llm_provider=settings.llm_provider,
                     llm_model=settings.llm_model,
                 )
+                if audit is not None:
+                    audit.record(
+                        "llm",
+                        "Summarize long article",
+                        summary=f"{article.title[:80]}",
+                        request={
+                            "title": article.title,
+                            "original_chars": len(body),
+                            "target_chars": limit,
+                            "original_text": body,
+                        },
+                        response={
+                            "summary_chars": len(article.body),
+                            "summary_text": article.body,
+                        },
+                        duration_ms=timer.elapsed_ms(),
+                    )
             except llm.LLMError as error:
+                if audit is not None:
+                    audit.record(
+                        "llm",
+                        "Summarize long article",
+                        status="error",
+                        summary=f"{article.title[:80]} — truncated instead",
+                        response={"error": str(error)},
+                    )
                 logger.warning("Summarization failed, truncating instead: %s", error)
                 article.body = body[:limit]
 

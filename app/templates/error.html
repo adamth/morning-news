@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ error_title }} - Morning News{% endblock %}
+{% block content %}
+<header class="settings-header">
+  <h1>{{ error_title }}</h1>
+  <p class="page-lead">{{ error_message }}</p>
+</header>
+
+<section class="section">
+  <div class="settings-group">
+    <p>{{ error_detail }}</p>
+    <div class="form-actions">
+      <a href="{{ error_back_href }}" class="btn btn-secondary">{{ error_back_label }}</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

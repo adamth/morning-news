@@ -40,22 +40,24 @@ generateForm?.addEventListener("submit", () => {
   if (!generateButton) {
     return;
   }
+  window.MorningNewsToast?.queue(
+    "Generating episode in the background",
+    "success",
+  );
+  window.MorningNewsToast?.show(
+    "Generating episode in the background",
+    "success",
+  );
   generateButton.disabled = true;
   generateButton.textContent = "Starting…";
 });
 
 const stripTransientQueryParams = () => {
   const url = new URL(window.location.href);
-  let changed = false;
-  for (const key of ["generating", "msg"]) {
-    if (url.searchParams.has(key)) {
-      url.searchParams.delete(key);
-      changed = true;
-    }
-  }
-  if (!changed) {
+  if (!url.searchParams.has("generating")) {
     return;
   }
+  url.searchParams.delete("generating");
   const clean = url.pathname + (url.search ? url.search : "") + url.hash;
   history.replaceState(null, "", clean);
 };

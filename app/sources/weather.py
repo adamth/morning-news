@@ -1,4 +1,4 @@
-"""Weather + geocoding via Open-Meteo (free, no API key)."""
+"""Location search via Open-Meteo; forecasts via WeatherAPI.com or Open-Meteo."""
 
 from __future__ import annotations
 
@@ -7,42 +7,16 @@ from dataclasses import dataclass
 
 import httpx
 
+from .weather_providers import (
+    WEATHER_PROVIDER_LABELS,
+    WeatherProviderId,
+    fetch_forecast,
+    resolve_weather_provider,
+)
+
 logger = logging.getLogger(__name__)
 
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
-FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
-
-# https://open-meteo.com/en/docs WMO weather interpretation codes.
-WEATHER_CODES: dict[int, str] = {
-    0: "clear sky",
-    1: "mainly clear",
-    2: "partly cloudy",
-    3: "overcast",
-    45: "fog",
-    48: "depositing rime fog",
-    51: "light drizzle",
-    53: "moderate drizzle",
-    55: "dense drizzle",
-    56: "light freezing drizzle",
-    57: "dense freezing drizzle",
-    61: "slight rain",
-    63: "moderate rain",
-    65: "heavy rain",
-    66: "light freezing rain",
-    67: "heavy freezing rain",
-    71: "slight snow",
-    73: "moderate snow",
-    75: "heavy snow",
-    77: "snow grains",
-    80: "slight rain showers",
-    81: "moderate rain showers",
-    82: "violent rain showers",
-    85: "slight snow showers",
-    86: "heavy snow showers",
-    95: "thunderstorm",
-    96: "thunderstorm with slight hail",
-    99: "thunderstorm with heavy hail",
-}
 
 
 @dataclass
@@ -166,39 +140,26 @@ class WeatherSummary:
     temperature_min: float | None = None
 
 
-def get_weather(latitude: float, longitude: float, timezone: str = "auto") -> WeatherSummary | None:
+def get_weather(
+    latitude: float,
+    longitude: float,
+    timezone: str = "auto",
+    *,
+    provider: str = "",
+    weatherapi_api_key: str | None = None,
+) -> WeatherSummary | None:
     """Return a short human-readable summary of today's weather."""
 
-    try:
-        response = httpx.get(
-            FORECAST_URL,
-            params={
-                "latitude": latitude,
-                "longitude": longitude,
-                "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
-                "timezone": timezone,
-                "forecast_days": 1,
-            },
-            timeout=20,
-        )
-        response.raise_for_status()
-        daily = response.json().get("daily") or {}
-    except (httpx.HTTPError, ValueError) as error:
-        logger.warning("Weather lookup failed: %s", error)
+    resolved = resolve_weather_provider(provider)
+    result = fetch_forecast(
+        resolved,
+        latitude,
+        longitude,
+        timezone,
+        weatherapi_api_key=weatherapi_api_key,
+    )
+    if result is None:
         return None
-    if not daily.get("time"):
-        return None
-
-    code = (daily.get("weather_code") or [0])[0]
-    temp_max = (daily.get("temperature_2m_max") or [None])[0]
-    temp_min = (daily.get("temperature_2m_min") or [None])[0]
-    precip = (daily.get("precipitation_probability_max") or [None])[0]
-    condition = WEATHER_CODES.get(int(code), "variable conditions")
-
-    parts = [f"{condition}"]
-    if temp_max is not None and temp_min is not None:
-        parts.append(f"a high of {round(temp_max)}\u00b0 and a low of {round(temp_min)}\u00b0")
-    if precip is not None and precip >= 30:
-        parts.append(f"{int(precip)}% chance of precipitation")
-    return WeatherSummary(text=", ".join(parts), temperature_max=temp_max, temperature_min=temp_min)
+    text, temp_max, temp_min = result
+    return WeatherSummary(text=text, temperature_max=temp_max, temperature_min=temp_min)
 

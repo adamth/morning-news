@@ -4,7 +4,7 @@
 <p><a href="/" class="text-muted no-underline hover:text-accent">&larr; Back to dashboard</a></p>
 <h1>{{ episode.title }}</h1>
 <p class="page-lead mb-6">
-  {{ episode.created_at.strftime('%A, %B %d, %Y') }}
+  {{ episode.created_at | spoken_date }}
   <span class="badge badge-{{ episode.status.value }}">{{ episode.status.value | episode_status_label }}</span>
   {% if episode.duration_seconds %}&middot; {{ (episode.duration_seconds / 60) | round(1) }} min{% endif %}
 </p>
@@ -50,6 +50,49 @@
   <section class="section">
     <h2 class="mb-4">Transcript</h2>
     <div class="script-block">{{ episode.script }}</div>
+  </section>
+  {% endif %}
+
+  {% if log_groups %}
+  <section class="section">
+    <h2 class="mb-2">Generation log</h2>
+    <p class="page-lead mb-5 text-base">Everything that went into building this episode — API calls, AI prompts, and pipeline steps.</p>
+    <div class="audit-log">
+      {% for group in log_groups %}
+      <details class="audit-group" open>
+        <summary class="audit-group-summary">
+          <span class="audit-group-title">{{ group.label }}</span>
+          <span class="audit-group-count">{{ group.entries | length }} step{{ 's' if group.entries | length != 1 else '' }}</span>
+        </summary>
+        <div class="audit-group-body">
+          {% for entry in group.entries %}
+          <details class="audit-entry">
+            <summary class="audit-entry-summary">
+              <span class="audit-entry-operation">{{ entry.operation }}</span>
+              <span class="status-badge status-badge-{{ entry.status }}">{{ entry.status }}</span>
+              {% if entry.duration_ms %}<span class="audit-entry-duration">{{ entry.duration_ms | round(0) | int }} ms</span>{% endif %}
+            </summary>
+            <div class="audit-entry-body">
+              {% if entry.summary %}<p class="audit-entry-summary-text">{{ entry.summary }}</p>{% endif %}
+              {% if entry.request_data %}
+              <div class="audit-data-block">
+                <h3 class="audit-data-label">Request</h3>
+                <pre class="audit-data-pre">{{ entry.request_data }}</pre>
+              </div>
+              {% endif %}
+              {% if entry.response_data %}
+              <div class="audit-data-block">
+                <h3 class="audit-data-label">Response</h3>
+                <pre class="audit-data-pre">{{ entry.response_data }}</pre>
+              </div>
+              {% endif %}
+            </div>
+          </details>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
   </section>
   {% endif %}
 </div>

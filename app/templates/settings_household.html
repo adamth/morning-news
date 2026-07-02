@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Household - Morning News{% endblock %}
+{% block content %}
+<header class="settings-header">
+  <h1>Settings</h1>
+  <p class="page-lead">
+    Who's in the house and what's on the calendar. One shared show, a private login for each person.
+  </p>
+</header>
+
+{% include "partials/settings_tabs.html" %}
+{% include "partials/setup_checklist.html" %}
+
+<section class="section">
+  <div class="settings-form" id="people">
+    <div class="settings-group">
+      <h2 class="settings-heading">
+        <span class="settings-heading-title">Who can sign in</span>
+        <span class="settings-meta">{{ users|length }} {% if users|length == 1 %}person{% else %}people{% endif %}</span>
+      </h2>
+      <p class="field-hint settings-group-lead">Each person has their own login so they can queue private messages — read aloud once in the next episode, invisible to everyone else until it airs. Show settings apply to everyone.</p>
+      <ul>
+        {% for u in users %}
+        <li class="list-row"><div>{{ u.username }}</div><div class="list-meta">Added {{ u.created_at.strftime('%b %d, %Y') }}</div></li>
+        {% endfor %}
+      </ul>
+      {% if users|length == 1 %}
+      <p class="text-sm text-muted">Just you so far — add your partner so they can queue private messages too.</p>
+      {% endif %}
+      <form method="post" action="/users" class="inline-form">
+        <div>
+          <label for="new_username">Username</label>
+          <input type="text" id="new_username" name="username" required autocomplete="username" />
+        </div>
+        <div>
+          <label for="new_password">Password</label>
+          <input type="password" id="new_password" name="password" required autocomplete="new-password" />
+        </div>
+        <button type="submit" class="btn btn-sm">Add person</button>
+      </form>
+    </div>
+  </div>
+
+  <hr class="settings-divider" />
+
+  <form method="post" action="/settings/calendar" class="settings-form" id="calendar">
+    <div class="settings-group">
+      <h2 class="settings-heading">
+        <span class="settings-heading-title">Family calendar</span>
+        <span class="settings-tag settings-tag-optional">Optional</span>
+      </h2>
+      <p class="field-hint settings-group-lead">Mention today's events from a shared calendar in the episode.</p>
+      <div class="settings-fields">
+        <div class="settings-field">
+          <label for="calendar_url">Calendar link</label>
+          <input type="url" id="calendar_url" name="calendar_url" value="{{ s.calendar_url }}" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" />
+          <div class="field-hint">Paste a subscription link (often ends in <code class="code-inline">.ics</code>). In Google Calendar, open calendar settings → <strong>Integrate calendar</strong> → copy the secret address. In iCloud, use <strong>Share Calendar</strong> → <strong>Public Calendar</strong>.</div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit">Save calendar</button>
+      </div>
+    </div>
+  </form>
+</section>
+{% endblock %}

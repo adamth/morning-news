@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+class TtsError(RuntimeError):
+    pass
+
+
 @dataclass
 class TtsVoice:
     voice_id: str
@@ -14,13 +18,28 @@ class TtsVoice:
     description: str = ""
     accent: str = ""
     language: str = ""
+    preview_url: str = ""
 
 
 class TtsProvider(abc.ABC):
     """A provider turns text into an mp3 file on disk."""
 
+    # True when list_voices() returns the provider's complete catalog, so
+    # accents derived from it are exhaustive. False for providers that query
+    # a larger shared library page by page (accent options get padded with
+    # common fallbacks there).
+    lists_full_catalog: bool = False
+
     @abc.abstractmethod
-    def synthesize(self, text: str, output_path: Path, *, voice_id: str, model_id: str) -> Path:
+    def synthesize(
+        self,
+        text: str,
+        output_path: Path,
+        *,
+        voice_id: str,
+        model_id: str,
+        emotion: str = "",
+    ) -> Path:
         """Render `text` to an mp3 at `output_path` and return the path."""
 
     @abc.abstractmethod

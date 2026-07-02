@@ -1,17 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Settings - Morning News{% endblock %}
+{% block title %}Your show - Morning News{% endblock %}
 {% block content %}
 <header class="settings-header">
   <h1>Settings</h1>
   <p class="page-lead">
-    When your episode is built, where you live, and which stories to include. Changes on this tab apply to the whole show.
+    What your episode covers, how it sounds, and when it's ready. Changes here apply to the whole show.
   </p>
 </header>
 
 {% include "partials/settings_tabs.html" %}
+{% include "partials/setup_checklist.html" %}
 
 <section class="section">
-  <form method="post" action="/settings" class="settings-form">
+  <form method="post" action="/settings" class="settings-form" id="schedule">
     <div class="settings-group">
       <h2 class="settings-heading">
         <span class="settings-heading-title">Schedule &amp; location</span>
@@ -65,8 +66,24 @@
 
         <label class="checkbox-inline">
           <input type="checkbox" name="weather_enabled" value="1" {{ 'checked' if s.weather_enabled else '' }}>
-          Include tomorrow's weather in the episode
+          Include today's weather in the episode
         </label>
+
+        <div class="settings-field">
+          <label for="weather_provider">Weather source</label>
+          <select id="weather_provider" name="weather_provider">
+            {% for option in weather_provider_options %}
+            <option value="{{ option.id }}" {{ 'selected' if option.id == weather_provider else '' }}>
+              {{ option.label }}{% if option.id == 'weatherapi' and not option.configured %} (add key in Connections first){% endif %}
+            </option>
+            {% endfor %}
+          </select>
+          <div class="field-hint">
+            WeatherAPI.com is often the most accurate and has a generous free tier — add a key in
+            <a href="/settings/plumbing#keys">Settings → Connections</a>.
+            Open-Meteo needs no key.
+          </div>
+        </div>
       </div>
 
       <div class="form-actions">
@@ -77,102 +94,7 @@
 
   <hr class="settings-divider" />
 
-  <form method="post" action="/settings/calendar" class="settings-form">
-    <div class="settings-group">
-      <h2 class="settings-heading">
-        <span class="settings-heading-title">Family calendar</span>
-        <span class="settings-tag settings-tag-optional">Optional</span>
-      </h2>
-      <p class="field-hint settings-group-lead">Mention today's events from a shared calendar in the episode.</p>
-      <div class="settings-fields">
-        <div class="settings-field">
-          <label for="calendar_url">Calendar link</label>
-          <input type="url" id="calendar_url" name="calendar_url" value="{{ s.calendar_url }}" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" />
-          <div class="field-hint">Paste a subscription link (often ends in <code class="code-inline">.ics</code>). In Google Calendar, open calendar settings → <strong>Integrate calendar</strong> → copy the secret address. In iCloud, use <strong>Share Calendar</strong> → <strong>Public Calendar</strong>.</div>
-        </div>
-      </div>
-      <div class="form-actions">
-        <button type="submit">Save calendar</button>
-      </div>
-    </div>
-  </form>
-
-  <hr class="settings-divider" />
-
-  <div class="settings-form">
-    <div class="settings-group">
-      <h2 class="settings-heading">
-        <span class="settings-heading-title">Stock watch</span>
-        {% if watchlist %}<span class="settings-tag settings-tag-count">{{ watchlist|length }}</span>{% endif %}
-        <span class="settings-tag settings-tag-optional">Optional</span>
-      </h2>
-      <p class="field-hint settings-group-lead">A short overall read on how your holdings moved in the last 24 hours. No per-stock rundown.</p>
-      <form method="post" action="/settings/stocks">
-        <div class="settings-fields">
-          <label class="checkbox-inline">
-            <input type="checkbox" name="stocks_enabled" value="1" {{ 'checked' if s.stocks_enabled else '' }}>
-            Include stock watch in the episode
-          </label>
-          <label class="checkbox-inline">
-            <input type="checkbox" name="stocks_mature_reactions" value="1" {{ 'checked' if s.stocks_mature_reactions else '' }}>
-            Allow 18+ reactions (profanity and adult humor in the market aside)
-          </label>
-        </div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-sm">Save stock settings</button>
-        </div>
-      </form>
-      <form id="add-watchlist-form" method="post" action="/watchlist" hidden></form>
-      <div class="data-table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th scope="col">Ticker</th>
-              <th scope="col">Label</th>
-              <th scope="col" class="data-table-actions"><span class="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% if watchlist %}
-            {% for item in watchlist %}
-            <tr>
-              <td><code class="code-inline">{{ item.symbol }}</code></td>
-              <td>{{ item.label or '—' }}</td>
-              <td class="data-table-actions">
-                <form method="post" action="/watchlist/{{ item.id }}/delete">
-                  <button class="btn btn-danger btn-sm" type="submit">Remove</button>
-                </form>
-              </td>
-            </tr>
-            {% endfor %}
-            {% else %}
-            <tr class="data-table-empty">
-              <td colspan="3">No stocks yet — add a ticker below.</td>
-            </tr>
-            {% endif %}
-            <tr class="data-table-add-row">
-              <td>
-                <label class="sr-only" for="stock_symbol">Ticker</label>
-                <input type="text" id="stock_symbol" form="add-watchlist-form" name="symbol" placeholder="AAPL" required maxlength="12" />
-              </td>
-              <td>
-                <label class="sr-only" for="stock_label">Label</label>
-                <input type="text" id="stock_label" form="add-watchlist-form" name="label" placeholder="Optional label" />
-              </td>
-              <td class="data-table-actions">
-                <button type="submit" form="add-watchlist-form" class="btn btn-sm">Add</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="field-hint">Requires a Finnhub API key on <a href="/settings/connections">Connections</a> (free at <a href="https://finnhub.io" target="_blank" rel="noopener">finnhub.io</a>). Examples: AAPL, MSFT, TSLA, ^GSPC (S&amp;P 500), ^FTSE</div>
-    </div>
-  </div>
-
-  <hr class="settings-divider" />
-
-  <form method="post" action="/settings/story-mix" class="settings-form">
+  <form method="post" action="/settings/story-mix" class="settings-form" id="story-mix">
     <div class="settings-group">
       <h2 class="settings-heading">
         <span class="settings-heading-title">Story mix</span>
@@ -204,17 +126,18 @@
       <h2 class="settings-heading">
         <span class="settings-heading-title">Topics to skip</span>
         {% if preferences %}
-        <span class="settings-tag settings-tag-count">{{ preferences|length }}</span>
+        <span class="settings-tag settings-tag-count">{{ preferences|length }} topic{{ 's' if preferences|length != 1 else '' }}</span>
         {% endif %}
       </h2>
       <p class="field-hint settings-group-lead">Stories mainly about these subjects are left out of everyone's episode.</p>
       <form method="post" action="/preferences" class="inline-form">
         <div class="inline-form-grow">
-          <label for="exclude-topic">Topic to skip</label>
-          <input type="text" id="exclude-topic" name="topic" placeholder="e.g. politics, sports, crime" required />
+          <label for="exclude-topic">Topics to skip</label>
+          <input type="text" id="exclude-topic" name="topic" placeholder="politics, sports, crime" required />
         </div>
-        <button type="submit" class="btn btn-sm">Add topic</button>
+        <button type="submit" class="btn btn-sm">Add topics</button>
       </form>
+      <p class="field-hint">Separate multiple topics with commas.</p>
       {% if preferences %}
       <div class="flex flex-wrap gap-x-6 gap-y-2">
         {% for pref in preferences %}
@@ -230,9 +153,558 @@
       {% endif %}
     </div>
   </div>
+
+  <hr class="settings-divider" />
+
+  <form method="post" action="/settings/voice" class="settings-form" id="voice">
+    <div class="settings-group">
+      <h2 class="settings-heading">
+        <span class="settings-heading-title">Narrator voice</span>
+      </h2>
+      <div class="settings-fields">
+        <div class="settings-field">
+          <label for="tts_provider">Narration service</label>
+          <select id="tts_provider" name="tts_provider">
+            {% for option in tts_provider_options %}
+            <option value="{{ option.id }}" {{ 'selected' if option.id == tts_provider else '' }}>
+              {{ option.label }}{% if not option.configured %} (add key on Plumbing first){% endif %}
+            </option>
+            {% endfor %}
+          </select>
+          <div class="field-hint">
+            Which service reads the show aloud. Keys live on
+            <a href="/settings/plumbing#keys">Plumbing</a>.
+            Switching services resets the voice below to that service's default.
+          </div>
+        </div>
+        <div class="field-row">
+          <div>
+            <label for="voice_language">Language</label>
+            <select id="voice_language" name="voice_language">
+              {% for code, label in voice_languages %}
+              <option value="{{ code }}" {{ 'selected' if code == s.voice_language else '' }}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <div class="field-hint">Used to filter voices and for daily rotation. “Match news language” follows your town setting above.</div>
+          </div>
+          <div>
+            <label for="voice_accent">Accent</label>
+            <select id="voice_accent" name="voice_accent">
+              <option value="" {{ 'selected' if not s.voice_accent else '' }}>Any accent</option>
+              {% for accent in voice_accents %}
+              <option value="{{ accent }}" {{ 'selected' if accent == s.voice_accent else '' }}>{{ accent.replace('-', ' ')|title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <label class="checkbox-inline">
+          <input type="checkbox" name="voice_randomize" value="1" id="voice_randomize" {{ 'checked' if s.voice_randomize else '' }}>
+          Different narrator each day
+        </label>
+        <div class="field-hint">When enabled, each episode picks a voice from the library matching your language and accent. The voice below is a fallback if the library cannot be reached.</div>
+        <div class="field-row" id="voice-picker-row">
+          <div>
+            <label for="voice_id">Voice</label>
+            <div id="voice-id-control">
+              {% if voices %}
+              <select id="voice_id" name="voice_id">
+                {% for voice in voices %}
+                <option
+                  value="{{ voice.voice_id }}"
+                  {% if voice.preview_url %}data-preview-url="{{ voice.preview_url }}"{% endif %}
+                  {{ 'selected' if voice.voice_id == s.voice_id else '' }}
+                >
+                  {{ voice.name }}{% if voice.accent %} ({{ voice.accent.replace('-', ' ')|title }}){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+              {% else %}
+              <input type="text" id="voice_id" name="voice_id" value="{{ s.voice_id }}" placeholder="Voice ID from your narration provider" />
+              {% endif %}
+            </div>
+            <div id="voice-preview-row" class="voice-preview" hidden>
+              <audio id="voice-preview-audio" controls preload="none"></audio>
+            </div>
+            <div class="field-hint" id="voice-id-hint" {% if voices %}hidden{% endif %}>Voice names appear here after you add a narration key on <a href="/settings/plumbing#keys">Plumbing</a>.</div>
+          </div>
+          <div>
+            <label for="voice_model">Voice quality</label>
+            <select id="voice_model" name="voice_model">
+              {% for model_id, label in voice_model_options %}
+              <option value="{{ model_id }}" {{ 'selected' if model_id == voice_model else '' }}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <div class="field-hint">Best quality sounds most natural if your plan includes it.</div>
+          </div>
+        </div>
+        <div class="settings-field" id="speechify-tone-row" {% if tts_provider != 'speechify' %}hidden{% endif %}>
+          <label for="speechify_emotion">Tone</label>
+          <select id="speechify_emotion" name="speechify_emotion">
+            {% for emotion_id, label in speechify_emotion_options %}
+            <option value="{{ emotion_id }}" {{ 'selected' if emotion_id == speechify_emotion else '' }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <div class="field-hint">Speechify can read the script with an emotional style. Natural uses the voice's default delivery.</div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit">Save narrator voice</button>
+      </div>
+    </div>
+  </form>
+
+  <hr class="settings-divider" />
+
+  <form method="post" action="/settings/episode-length" class="settings-form" id="length">
+    <div class="settings-group">
+      <h2 class="settings-heading">
+        <span class="settings-heading-title">Episode length</span>
+      </h2>
+      <div class="settings-fields">
+        <div class="field-row">
+          <div>
+            <label for="target_minutes_min">Shortest (minutes)</label>
+            <input type="number" step="0.1" min="0.5" id="target_minutes_min" name="target_minutes_min" value="{{ s.target_minutes_min }}" />
+          </div>
+          <div>
+            <label for="target_minutes_max">Longest (minutes)</label>
+            <input type="number" step="0.1" min="0.5" id="target_minutes_max" name="target_minutes_max" value="{{ s.target_minutes_max }}" />
+          </div>
+          <div>
+            <label for="max_article_length">Article length limit</label>
+            <input type="number" id="max_article_length" name="max_article_length" value="{{ s.max_article_length }}" min="500" />
+            <div class="field-hint">Very long source articles are shortened to about this many characters before the script is written.</div>
+          </div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit">Save episode length</button>
+      </div>
+    </div>
+  </form>
+
+  <hr class="settings-divider" />
+
+  <div id="music">
+  <form method="post" action="/settings/intro" enctype="multipart/form-data" class="settings-form">
+    <div class="settings-group">
+      <h2 class="settings-heading">
+        <span class="settings-heading-title">Intro music</span>
+        {% if intro_exists %}<span class="settings-tag settings-tag-ok">On file</span>{% endif %}
+        <span class="settings-tag settings-tag-optional">Optional</span>
+      </h2>
+      <p class="field-hint settings-group-lead">Short clip before the narration each morning.</p>
+      <div class="settings-fields">
+        <label class="checkbox-inline">
+          <input type="checkbox" name="intro_enabled" value="1" {{ 'checked' if s.intro_enabled else '' }}>
+          Play intro music before the narration
+        </label>
+        <div class="settings-field">
+          <label for="intro">Intro music file</label>
+          <input type="file" id="intro" name="intro" accept="audio/mpeg,.mp3" />
+          <div class="field-hint">MP3 format. Leave blank to keep your current file.</div>
+        </div>
+        <div class="settings-field">
+          <label for="intro_play_seconds">Full volume for (seconds)</label>
+          <input
+            type="number"
+            class="field-narrow"
+            id="intro_play_seconds"
+            name="intro_play_seconds"
+            value="{{ s.intro_play_seconds }}"
+            min="0"
+            step="0.5"
+          />
+          <p class="field-hint">Plays at full volume for this long, then fades under the voice{% if intro_duration %} — your file is {{ '%.0f'|format(intro_duration) }} seconds{% endif %}.</p>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit">Save intro music</button>
+      </div>
+    </div>
+  </form>
+
+  <hr class="settings-divider" />
+
+  <form method="post" action="/settings/outro" enctype="multipart/form-data" class="settings-form">
+    <div class="settings-group">
+      <h2 class="settings-heading">
+        <span class="settings-heading-title">Outro music</span>
+        {% if outro_exists %}<span class="settings-tag settings-tag-ok">On file</span>{% endif %}
+        <span class="settings-tag settings-tag-optional">Optional</span>
+      </h2>
+      <p class="field-hint settings-group-lead">Short clip after the narration each morning.</p>
+      <div class="settings-fields">
+        <label class="checkbox-inline">
+          <input type="checkbox" name="outro_enabled" value="1" {{ 'checked' if s.outro_enabled else '' }}>
+          Play outro music after the narration
+        </label>
+        <div class="settings-field">
+          <label for="outro">Outro music file</label>
+          <input type="file" id="outro" name="outro" accept="audio/mpeg,.mp3" />
+          <div class="field-hint">MP3 format. Leave blank to keep your current file.</div>
+        </div>
+        <div class="settings-field">
+          <label for="outro_play_seconds">Overlap with narration (seconds)</label>
+          <input
+            type="number"
+            class="field-narrow"
+            id="outro_play_seconds"
+            name="outro_play_seconds"
+            value="{{ s.outro_play_seconds }}"
+            min="0"
+            step="0.5"
+          />
+          <p class="field-hint">The outro starts this many seconds before the narration ends, then keeps playing on its own{% if outro_duration %} — your file is {{ '%.0f'|format(outro_duration) }} seconds{% endif %}.</p>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit">Save outro music</button>
+      </div>
+    </div>
+  </form>
+  </div>
+
+  <hr class="settings-divider" />
+
+  <div class="settings-form" id="stocks">
+    <div class="settings-group">
+      <h2 class="settings-heading">
+        <span class="settings-heading-title">Stock watch</span>
+        {% if watchlist %}<span class="settings-tag settings-tag-count">{{ watchlist|length }} stock{{ 's' if watchlist|length != 1 else '' }}</span>{% endif %}
+        <span class="settings-tag settings-tag-optional">Optional</span>
+      </h2>
+      <p class="field-hint settings-group-lead">A short overall read on how your holdings moved in the last 24 hours. No per-stock rundown.</p>
+      <form method="post" action="/settings/stocks">
+        <div class="settings-fields">
+          <label class="checkbox-inline">
+            <input type="checkbox" name="stocks_enabled" value="1" {{ 'checked' if s.stocks_enabled else '' }}>
+            Include stock watch in the episode
+          </label>
+          <label class="checkbox-inline">
+            <input type="checkbox" name="stocks_mature_reactions" value="1" {{ 'checked' if s.stocks_mature_reactions else '' }}>
+            Allow 18+ reactions (profanity and adult humor in the market aside)
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="submit">Save stock settings</button>
+        </div>
+      </form>
+      <form id="add-watchlist-form" method="post" action="/watchlist" hidden></form>
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">Ticker</th>
+              <th scope="col">Label</th>
+              <th scope="col" class="data-table-actions"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if watchlist %}
+            {% for item in watchlist %}
+            <tr>
+              <td><code class="code-inline">{{ item.symbol }}</code></td>
+              <td>{{ item.label or '—' }}</td>
+              <td class="data-table-actions">
+                <form
+                  method="post"
+                  action="/watchlist/{{ item.id }}/delete"
+                  data-confirm="Remove {{ item.symbol }} from your watchlist?"
+                >
+                  <button class="btn btn-danger btn-sm" type="submit">Remove<span class="sr-only"> {{ item.symbol }}</span></button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+            {% else %}
+            <tr class="data-table-empty">
+              <td colspan="3">No stocks yet — add a ticker below.</td>
+            </tr>
+            {% endif %}
+            <tr class="data-table-add-row">
+              <td>
+                <label class="sr-only" for="stock_symbol">Ticker</label>
+                <input type="text" id="stock_symbol" form="add-watchlist-form" name="symbol" placeholder="AAPL, MSFT, ^GSPC" required />
+              </td>
+              <td>
+                <label class="sr-only" for="stock_label">Label</label>
+                <input type="text" id="stock_label" form="add-watchlist-form" name="label" placeholder="Optional label" />
+              </td>
+              <td class="data-table-actions">
+                <button type="submit" form="add-watchlist-form" class="btn btn-sm">Add</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="field-hint">Separate multiple tickers with commas. Requires a Finnhub API key on <a href="/settings/plumbing#keys">Plumbing</a> (free at <a href="https://finnhub.io" target="_blank" rel="noopener">finnhub.io</a>). Examples: AAPL, MSFT, TSLA, ^GSPC (S&amp;P 500), ^FTSE</div>
+    </div>
+  </div>
+
+  <hr class="settings-divider" />
+
+  <form method="post" action="/settings/podcast-app" class="settings-form" id="podcast-app">
+    <div class="settings-group">
+      <h2 class="settings-heading">
+        <span class="settings-heading-title">In your podcast app</span>
+      </h2>
+      <p class="field-hint settings-group-lead">Title, author, and description shown when you subscribe in Apple Podcasts, Overcast, and similar apps.</p>
+      <div class="settings-fields">
+        <div class="field-row">
+          <div>
+            <label for="podcast_title">Show title</label>
+            <input type="text" id="podcast_title" name="podcast_title" value="{{ s.podcast_title }}" />
+          </div>
+          <div>
+            <label for="podcast_author">Author</label>
+            <input type="text" id="podcast_author" name="podcast_author" value="{{ s.podcast_author }}" />
+          </div>
+        </div>
+        <div class="settings-field">
+          <label for="podcast_description">Description</label>
+          <textarea id="podcast_description" name="podcast_description">{{ s.podcast_description }}</textarea>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit">Save podcast details</button>
+      </div>
+    </div>
+  </form>
 </section>
 {% endblock %}
 
 {% block scripts %}
 <script src="/static/location-autocomplete.js?v=4"></script>
+<script>
+  (() => {
+    const randomize = document.getElementById("voice_randomize");
+    const pickerRow = document.getElementById("voice-picker-row");
+    const ttsProvider = document.getElementById("tts_provider");
+    const voiceLanguage = document.getElementById("voice_language");
+    const voiceAccent = document.getElementById("voice_accent");
+    const voiceModel = document.getElementById("voice_model");
+    const voiceControl = document.getElementById("voice-id-control");
+    const voiceHint = document.getElementById("voice-id-hint");
+    const speechifyToneRow = document.getElementById("speechify-tone-row");
+    const speechifyEmotion = document.getElementById("speechify_emotion");
+    const voicePreviewRow = document.getElementById("voice-preview-row");
+    const voicePreviewAudio = document.getElementById("voice-preview-audio");
+    const voicePreviewById = new Map();
+
+    const formatAccent = (accent) =>
+      accent.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+    const syncSpeechifyTone = (visible) => {
+      if (!speechifyToneRow) return;
+      speechifyToneRow.hidden = !visible;
+    };
+
+    const fillSelect = (select, items, selectedValue) => {
+      select.replaceChildren();
+      for (const item of items) {
+        const option = document.createElement("option");
+        option.value = item.value;
+        option.textContent = item.label;
+        if (item.value === selectedValue) option.selected = true;
+        select.appendChild(option);
+      }
+    };
+
+    const updateSpeechifyToneOptions = (emotions, selectedEmotion) => {
+      if (!speechifyEmotion) return;
+      fillSelect(
+        speechifyEmotion,
+        (emotions ?? []).map((emotion) => ({
+          value: emotion.id,
+          label: emotion.label,
+        })),
+        selectedEmotion ?? "",
+      );
+    };
+
+    const syncVoicePicker = () => {
+      if (!randomize || !pickerRow) return;
+      pickerRow.hidden = randomize.checked;
+    };
+
+    randomize?.addEventListener("change", syncVoicePicker);
+    syncVoicePicker();
+    syncSpeechifyTone(ttsProvider?.value === "speechify");
+
+    const indexVoicePreviewsFromSelect = () => {
+      voicePreviewById.clear();
+      const select = voiceControl?.querySelector("select#voice_id");
+      if (!select) return;
+      for (const option of select.options) {
+        const previewUrl = option.dataset.previewUrl?.trim();
+        if (previewUrl) voicePreviewById.set(option.value, previewUrl);
+      }
+    };
+
+    const updateVoicePreviews = (voices) => {
+      voicePreviewById.clear();
+      for (const voice of voices ?? []) {
+        const previewUrl = voice.preview_url?.trim();
+        if (previewUrl) voicePreviewById.set(voice.voice_id, previewUrl);
+      }
+    };
+
+    const syncVoicePreview = () => {
+      if (!voicePreviewRow || !voicePreviewAudio) return;
+      const previewUrl =
+        ttsProvider?.value === "speechify" ? voicePreviewById.get(currentVoiceId()) : "";
+      if (!previewUrl) {
+        voicePreviewRow.hidden = true;
+        voicePreviewAudio.removeAttribute("src");
+        voicePreviewAudio.load();
+        return;
+      }
+      voicePreviewRow.hidden = false;
+      if (voicePreviewAudio.getAttribute("src") !== previewUrl) {
+        voicePreviewAudio.src = previewUrl;
+        voicePreviewAudio.load();
+      }
+    };
+
+    const currentVoiceId = () => voiceControl?.querySelector("#voice_id")?.value ?? "";
+
+    const renderVoiceControl = (voices, selectedVoiceId) => {
+      if (!voiceControl) return;
+      if (voices.length > 0) {
+        const select = document.createElement("select");
+        select.id = "voice_id";
+        select.name = "voice_id";
+        fillSelect(
+          select,
+          voices.map((voice) => ({
+            value: voice.voice_id,
+            label: voice.accent
+              ? `${voice.name} (${formatAccent(voice.accent)})`
+              : voice.name,
+          })),
+          selectedVoiceId,
+        );
+        for (const [index, voice] of voices.entries()) {
+          const previewUrl = voice.preview_url?.trim();
+          if (previewUrl && select.options[index]) {
+            select.options[index].dataset.previewUrl = previewUrl;
+          }
+        }
+        voiceControl.replaceChildren(select);
+        if (voiceHint) voiceHint.hidden = true;
+        updateVoicePreviews(voices);
+        syncVoicePreview();
+        return;
+      }
+
+      voicePreviewById.clear();
+      syncVoicePreview();
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.id = "voice_id";
+      input.name = "voice_id";
+      input.value = selectedVoiceId;
+      input.placeholder = "Voice ID from your narration provider";
+      voiceControl.replaceChildren(input);
+      if (voiceHint) voiceHint.hidden = false;
+    };
+
+    const updateAccentOptions = (accents, selectedAccent) => {
+      if (!voiceAccent) return;
+      const items = [{ value: "", label: "Any accent" }];
+      for (const accent of accents) {
+        items.push({ value: accent, label: formatAccent(accent) });
+      }
+      const keepSelection = selectedAccent && accents.includes(selectedAccent);
+      fillSelect(voiceAccent, items, keepSelection ? selectedAccent : "");
+    };
+
+    const updateVoiceModels = (models, selectedModel) => {
+      if (!voiceModel) return;
+      fillSelect(
+        voiceModel,
+        models.map((model) => ({ value: model.id, label: model.label })),
+        selectedModel,
+      );
+    };
+
+    let fetchTimer = null;
+
+    const fetchVoiceOptions = async ({ resetForProvider = false } = {}) => {
+      if (!ttsProvider) return;
+
+      const previousVoiceId = currentVoiceId();
+      const previousModel = voiceModel?.value ?? "";
+      const previousEmotion = speechifyEmotion?.value ?? "";
+
+      if (resetForProvider && voiceAccent) {
+        voiceAccent.value = "";
+      }
+
+      const params = new URLSearchParams({
+        provider: ttsProvider.value,
+        voice_language: voiceLanguage?.value ?? "",
+        voice_accent: voiceAccent?.value ?? "",
+      });
+
+      try {
+        const response = await fetch(`/api/tts/voices?${params}`);
+        if (!response.ok) return;
+        const data = await response.json();
+
+        const voiceIds = new Set((data.voices ?? []).map((voice) => voice.voice_id));
+        const modelIds = new Set((data.voice_models ?? []).map((model) => model.id));
+        const selectedVoiceId = resetForProvider
+          ? data.default_voice_id
+          : voiceIds.has(previousVoiceId)
+            ? previousVoiceId
+            : data.default_voice_id;
+        const selectedModel = resetForProvider
+          ? data.default_voice_model
+          : modelIds.has(previousModel)
+            ? previousModel
+            : data.default_voice_model;
+
+        updateAccentOptions(data.accents ?? [], voiceAccent?.value ?? "");
+        updateVoiceModels(data.voice_models ?? [], selectedModel);
+        renderVoiceControl(data.voices ?? [], selectedVoiceId);
+        syncSpeechifyTone(Boolean(data.show_speechify_tone));
+        if (data.show_speechify_tone) {
+          updateSpeechifyToneOptions(
+            data.speechify_emotions ?? [],
+            resetForProvider ? "" : previousEmotion,
+          );
+        }
+        updateVoicePreviews(data.voices ?? []);
+        syncVoicePreview();
+      } catch {
+        // Keep existing controls if the request fails.
+      }
+    };
+
+    const scheduleFetch = (options) => {
+      window.clearTimeout(fetchTimer);
+      fetchTimer = window.setTimeout(() => fetchVoiceOptions(options), 150);
+    };
+
+    ttsProvider?.addEventListener("change", () => {
+      syncSpeechifyTone(ttsProvider.value === "speechify");
+      scheduleFetch({ resetForProvider: true });
+    });
+    voiceLanguage?.addEventListener("change", () => {
+      scheduleFetch({ resetForProvider: false });
+    });
+    voiceAccent?.addEventListener("change", () => {
+      scheduleFetch({ resetForProvider: false });
+    });
+    voiceControl?.addEventListener("change", (event) => {
+      if (event.target.id === "voice_id") syncVoicePreview();
+    });
+
+    indexVoicePreviewsFromSelect();
+    syncVoicePreview();
+  })();
+</script>
 {% endblock %}

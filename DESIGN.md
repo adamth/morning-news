@@ -26,13 +26,17 @@ The UI serves a household ritual. Density stays moderate; hierarchy is obvious; 
 **The Restrained Rule.** Tinted neutrals carry the interface. Sage accent appears on ≤10% of any screen — primary actions, active nav, focus rings, success-adjacent highlights. Its rarity is the point.
 
 ### Primary
-- **Sage** ([to be resolved during implementation]): Accent for primary buttons, active navigation, focus states, and positive status. Muted green — garden and seasonal, not neon eco-brand.
+- **Sage** (`oklch(50% 0.09 152)`, strong `oklch(42% 0.1 152)`, soft `oklch(93% 0.03 152)`): Accent for primary buttons, active navigation, focus states, and positive status. Muted green — garden and seasonal, not neon eco-brand.
 
 ### Neutral
-- **Warm ground** ([to be resolved during implementation]): Page background. True off-white or warm-tinted neutral at low chroma — not cream/sand AI default, not cold blue-gray.
-- **Surface** ([to be resolved during implementation]): Cards and elevated panels. One step above ground; tonal layering, not shadow.
-- **Ink** ([to be resolved during implementation]): Body text. Contrast ≥4.5:1 against ground; never washed-out gray for "elegance."
-- **Muted ink** ([to be resolved during implementation]): Secondary labels, hints, timestamps. Still readable; darker shade of the surface hue, not generic gray-on-tinted-bg.
+- **Ground** (`oklch(97.3% 0.008 150)`): Page background. Sage-tinted neutral at low chroma — the tint is felt, not seen.
+- **Surface** (`oklch(99.3% 0.004 150)`): Cards and elevated panels. One step above ground; tonal layering, not shadow.
+- **Ink** (`oklch(25% 0.02 155)`): Body text. 14.7:1 against ground.
+- **Muted ink** (`oklch(46% 0.025 152)`): Secondary labels, hints, timestamps. 6.5:1 against ground — readable, sage-hued, not generic gray.
+- **Border** (`oklch(87% 0.015 150)`) and **emphasis** (`oklch(94.5% 0.018 150)`): hairlines and table-header/nested-panel washes.
+
+### Functional secondaries
+Coral (`oklch(52% 0.14 32)`) for required/warning notes, sky (`oklch(50% 0.05 230)`) for optional/informational tags, danger (`oklch(50% 0.18 25)`) for destructive actions and failures. All subdued; none decorative.
 
 ### Named Rules
 **The No-Cream Rule.** Warmth lives in accent, typography, and copy — not in a saturated near-white body background. Avoid the 2026 cream/sand/paper band unless the brief explicitly demands it.

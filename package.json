@@ -4,12 +4,8 @@
   "scripts": {
     "build:css": "tailwindcss -i ./assets/input.css -o ./app/static/style.css --minify",
     "watch:css": "tailwindcss -i ./assets/input.css -o ./app/static/style.css --watch",
-    "unraid:build": "docker build --platform linux/amd64 -t \"${DOCKER_IMAGE:-morning-news}:latest\" .",
-    "unraid:push": "bash scripts/unraid-push.sh",
-    "unraid:pull": "bash scripts/unraid-pull.sh",
-    "unraid:up": "npm run unraid:build && docker compose up -d",
-    "unraid:down": "docker compose down",
-    "unraid:logs": "docker compose logs -f --tail=100"
+    "dev": "bash scripts/dev.sh",
+    "docker:publish": "bash scripts/docker-publish.sh"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.11",

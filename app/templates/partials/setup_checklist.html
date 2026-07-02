@@ -1,0 +1,42 @@
+{% if setup %}
+<aside class="setup-checklist" aria-labelledby="setup-checklist-title">
+  <h2 id="setup-checklist-title" class="setup-checklist-title">Before your first episode</h2>
+  <ol class="setup-steps">
+    <li class="setup-step{% if setup.keys_done %} setup-step-done{% endif %}">
+      <span class="setup-step-mark" aria-hidden="true">{% if setup.keys_done %}✓{% else %}1{% endif %}</span>
+      <span class="setup-step-body">
+        {% if setup.keys_done %}
+        <span class="sr-only">Done: </span>Connected to a narrator and a writing service.
+        {% else %}
+        Connect the two services that make the show — a narrator and a writer.
+        <a href="/settings/plumbing#keys">Add keys on Plumbing</a>
+        {% endif %}
+      </span>
+    </li>
+    <li class="setup-step{% if setup.town_done %} setup-step-done{% endif %}">
+      <span class="setup-step-mark" aria-hidden="true">{% if setup.town_done %}✓{% else %}2{% endif %}</span>
+      <span class="setup-step-body">
+        {% if setup.town_done %}
+        <span class="sr-only">Done: </span>Your town is set for weather and local news.
+        {% else %}
+        Choose your town so the show knows your weather and local news.
+        <a href="/settings#schedule">Set it on Your show</a>
+        {% endif %}
+      </span>
+    </li>
+    <li class="setup-step{% if setup.listen_done %} setup-step-done{% endif %}">
+      <span class="setup-step-mark" aria-hidden="true">{% if setup.listen_done %}✓{% else %}3{% endif %}</span>
+      <span class="setup-step-body">
+        {% if setup.listen_done %}
+        <span class="sr-only">Done: </span>Your first episode is ready.
+        {% elif setup.ready_to_build %}
+        You're ready — your first episode builds at {{ setup.build_time }}.
+        Or <a href="/">build one now from the Dashboard</a>.
+        {% else %}
+        Listen — once the steps above are done, your first episode builds at {{ setup.build_time }}.
+        {% endif %}
+      </span>
+    </li>
+  </ol>
+</aside>
+{% endif %}

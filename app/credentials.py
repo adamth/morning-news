@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _SECRET_FIELDS: tuple[tuple[str, str], ...] = (
     ("elevenlabs_api_key_enc", "ELEVENLABS_API_KEY"),
+    ("speechify_api_key_enc", "SPEECHIFY_API_KEY"),
     ("openrouter_api_key_enc", "OPENROUTER_API_KEY"),
     ("openai_api_key_enc", "OPENAI_API_KEY"),
     ("anthropic_api_key_enc", "ANTHROPIC_API_KEY"),
@@ -26,6 +27,7 @@ _SECRET_FIELDS: tuple[tuple[str, str], ...] = (
     ("zyte_api_key_enc", "ZYTE_API_KEY"),
     ("finnhub_api_key_enc", "FINNHUB_API_KEY"),
     ("newsdata_api_key_enc", "NEWSDATA_API_KEY"),
+    ("weatherapi_api_key_enc", "WEATHERAPI_API_KEY"),
 )
 
 
@@ -73,6 +75,7 @@ def fingerprint_secret(value: str | None) -> str:
 @dataclass(frozen=True)
 class Credentials:
     elevenlabs_api_key: str | None = None
+    speechify_api_key: str | None = None
     openrouter_api_key: str | None = None
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
@@ -81,8 +84,10 @@ class Credentials:
     zyte_api_key: str | None = None
     finnhub_api_key: str | None = None
     newsdata_api_key: str | None = None
+    weatherapi_api_key: str | None = None
 
     elevenlabs_from_env: bool = False
+    speechify_from_env: bool = False
     openrouter_from_env: bool = False
     openai_from_env: bool = False
     anthropic_from_env: bool = False
@@ -90,8 +95,10 @@ class Credentials:
     zyte_from_env: bool = False
     finnhub_from_env: bool = False
     newsdata_from_env: bool = False
+    weatherapi_from_env: bool = False
 
     elevenlabs_stored: bool = False
+    speechify_stored: bool = False
     openrouter_stored: bool = False
     openai_stored: bool = False
     anthropic_stored: bool = False
@@ -99,6 +106,7 @@ class Credentials:
     zyte_stored: bool = False
     finnhub_stored: bool = False
     newsdata_stored: bool = False
+    weatherapi_stored: bool = False
 
 
 def load_credentials(settings: Settings) -> Credentials:
@@ -112,6 +120,9 @@ def load_credentials(settings: Settings) -> Credentials:
 
     elevenlabs, elevenlabs_env, elevenlabs_stored = pick(
         "ELEVENLABS_API_KEY", settings.elevenlabs_api_key_enc
+    )
+    speechify, speechify_env, speechify_stored = pick(
+        "SPEECHIFY_API_KEY", settings.speechify_api_key_enc
     )
     openrouter, openrouter_env, openrouter_stored = pick(
         "OPENROUTER_API_KEY", settings.openrouter_api_key_enc
@@ -130,9 +141,13 @@ def load_credentials(settings: Settings) -> Credentials:
     newsdata, newsdata_env, newsdata_stored = pick(
         "NEWSDATA_API_KEY", settings.newsdata_api_key_enc
     )
+    weatherapi, weatherapi_env, weatherapi_stored = pick(
+        "WEATHERAPI_API_KEY", settings.weatherapi_api_key_enc
+    )
 
     return Credentials(
         elevenlabs_api_key=elevenlabs,
+        speechify_api_key=speechify,
         openrouter_api_key=openrouter,
         openai_api_key=openai,
         anthropic_api_key=anthropic,
@@ -141,7 +156,9 @@ def load_credentials(settings: Settings) -> Credentials:
         zyte_api_key=zyte,
         finnhub_api_key=finnhub,
         newsdata_api_key=newsdata,
+        weatherapi_api_key=weatherapi,
         elevenlabs_from_env=elevenlabs_env,
+        speechify_from_env=speechify_env,
         openrouter_from_env=openrouter_env,
         openai_from_env=openai_env,
         anthropic_from_env=anthropic_env,
@@ -149,7 +166,9 @@ def load_credentials(settings: Settings) -> Credentials:
         zyte_from_env=zyte_env,
         finnhub_from_env=finnhub_env,
         newsdata_from_env=newsdata_env,
+        weatherapi_from_env=weatherapi_env,
         elevenlabs_stored=elevenlabs_stored,
+        speechify_stored=speechify_stored,
         openrouter_stored=openrouter_stored,
         openai_stored=openai_stored,
         anthropic_stored=anthropic_stored,
@@ -157,6 +176,7 @@ def load_credentials(settings: Settings) -> Credentials:
         zyte_stored=zyte_stored,
         finnhub_stored=finnhub_stored,
         newsdata_stored=newsdata_stored,
+        weatherapi_stored=weatherapi_stored,
     )
 
 
@@ -184,6 +204,7 @@ def apply_secret_updates(
     settings: Settings,
     *,
     elevenlabs_api_key: str = "",
+    speechify_api_key: str = "",
     openrouter_api_key: str = "",
     openai_api_key: str = "",
     anthropic_api_key: str = "",
@@ -192,7 +213,9 @@ def apply_secret_updates(
     zyte_api_key: str = "",
     finnhub_api_key: str = "",
     newsdata_api_key: str = "",
+    weatherapi_api_key: str = "",
     clear_elevenlabs: bool = False,
+    clear_speechify: bool = False,
     clear_openrouter: bool = False,
     clear_openai: bool = False,
     clear_anthropic: bool = False,
@@ -200,9 +223,11 @@ def apply_secret_updates(
     clear_zyte: bool = False,
     clear_finnhub: bool = False,
     clear_newsdata: bool = False,
+    clear_weatherapi: bool = False,
 ) -> None:
     updates: list[tuple[str, str, bool]] = [
         ("elevenlabs_api_key_enc", elevenlabs_api_key, clear_elevenlabs),
+        ("speechify_api_key_enc", speechify_api_key, clear_speechify),
         ("openrouter_api_key_enc", openrouter_api_key, clear_openrouter),
         ("openai_api_key_enc", openai_api_key, clear_openai),
         ("anthropic_api_key_enc", anthropic_api_key, clear_anthropic),
@@ -210,6 +235,7 @@ def apply_secret_updates(
         ("zyte_api_key_enc", zyte_api_key, clear_zyte),
         ("finnhub_api_key_enc", finnhub_api_key, clear_finnhub),
         ("newsdata_api_key_enc", newsdata_api_key, clear_newsdata),
+        ("weatherapi_api_key_enc", weatherapi_api_key, clear_weatherapi),
     ]
 
     for field_name, submitted_value, should_clear in updates:

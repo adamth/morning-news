@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
+from typing import Any
 
 from .credentials import Credentials
+from .episode_log import LogTimer, active_log
 from .llm_providers import (
     LlmProviderConfig,
     LlmProviderError,
@@ -28,6 +31,7 @@ class ArticleInput:
     publisher: str
     content: str
     source_name: str = ""
+    priority: bool = False
 
 
 @dataclass
@@ -45,6 +49,41 @@ class EpisodeContent:
     used_message_ids: list[int] = field(default_factory=list)
 
 
+EPISODE_CONTENT_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "title": {
+            "type": "string",
+            "description": "Short episode title",
+        },
+        "description": {
+            "type": "string",
+            "description": "One-sentence summary for show notes",
+        },
+        "script": {
+            "type": "string",
+            "description": (
+                "The full spoken monologue as one continuous block of prose with "
+                "correct English punctuation (periods, commas, question marks, "
+                "apostrophes), and no line breaks or escape sequences"
+            ),
+        },
+        "used_article_ids": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "Article ids from the candidate list that were included in the episode",
+        },
+        "used_message_ids": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "Personal message ids that were read aloud in the episode",
+        },
+    },
+    "required": ["title", "description", "script", "used_article_ids", "used_message_ids"],
+    "additionalProperties": False,
+}
+
+
 def _provider_config(
     *,
     credentials: Credentials,
@@ -57,6 +96,15 @@ def _provider_config(
             settings_provider=llm_provider,
             settings_model=llm_model,
         )
+    except LlmProviderError as error:
+        raise LLMError(str(error)) from error
+
+
+def _chat_completion(**kwargs: object) -> str:
+    from .llm_providers import chat_completion
+
+    try:
+        return chat_completion(**kwargs)
     except LlmProviderError as error:
         raise LLMError(str(error)) from error
 
@@ -77,9 +125,7 @@ def summarize_article(
         llm_provider=llm_provider,
         llm_model=llm_model,
     )
-    from .llm_providers import chat_completion
-
-    return chat_completion(
+    return _chat_completion(
         provider_config=provider_config,
         system=(
             "You compress news articles into tight, factual summaries that "
@@ -108,9 +154,15 @@ def _build_generation_prompt(
 ) -> str:
     midpoint_words = int(((target_min + target_max) / 2) * 150)
 
+    def _feed_tag(item: ArticleInput) -> str:
+        if item.priority:
+            return f" (priority feed: {item.source_name or item.publisher})"
+        if item.source_name:
+            return f" (feed: {item.source_name})"
+        return ""
+
     article_block = "\n\n".join(
-        f"[article {item.id}]"
-        f"{f' (feed: {item.source_name})' if item.source_name else ''} "
+        f"[article {item.id}]{_feed_tag(item)} "
         f"{item.title} ({item.publisher})\n{item.content[:4000]}"
         for item in articles
     ) or "(no articles available)"
@@ -127,7 +179,16 @@ Today is {date_text}. The listener's local area is {locality or "unspecified"}.
 Write a natural, concise spoken monologue of about {midpoint_words} words \
 (target {target_min}-{target_max} minutes at ~150 words/minute). Sound like a calm, \
 competent local newsreader — friendly but efficient. Do NOT include stage directions, \
-headers, or markdown. Output only what should be spoken.
+headers, markdown, line breaks, or escape sequences (no \\n, \\t, etc.). The script must \
+be one continuous block of prose with correct English punctuation — output only what \
+should be spoken aloud.
+
+PUNCTUATION (required — TTS uses it for pacing and intonation):
+- End every sentence with a period, question mark, or exclamation mark.
+- Use commas for natural pauses: between clauses, in lists, and after brief transitions.
+- Use apostrophes in contractions (it's, here's, we're).
+- Dates use a comma before the year (July 2, 2026), matching the date given above.
+- Do not omit punctuation or run sentences together without commas or periods.
 
 STYLE:
 - Use short transitions so the listener always knows where they are: e.g. "For today's weather…", \
@@ -139,7 +200,9 @@ sections or stories is fine — it helps pacing.
 "encouraging local stories", "leaves you feeling", "a quiet one", "catch up on things", \
 "a little downtime", or long previews of what you're about to cover.
 - Do not introduce yourself by name — the audio opens with a separate line naming the narrator.
-- Greeting: one or two short sentences (day/date, maybe a quick "here's your briefing").
+- Greeting: one or two short sentences (day/date, maybe a quick "here's your briefing"). \
+When stating the date, use the exact format given above (e.g. July 2, 2026) — always include \
+a comma before the year.
 - Sign-off: one or two short sentences. Warm is fine; a paragraph of reflection is not.
 - Weather and events: state the facts, then a clear handoff to the next section.
 - Market watch: one or two sentences on the aggregate numbers only. Then ONE brief wry reaction \
@@ -179,16 +242,9 @@ PERSONAL MESSAGES TO INCLUDE (read each one that you use, then list its id in us
 
 CANDIDATE NEWS ARTICLES (pick the strongest stories; use priorities above as a tie-breaker):
 - Articles marked with "feed:" come from RSS feeds the listener added — include at least one when relevant.
-{article_block}
-
-Respond ONLY with a JSON object of this exact shape:
-{{
-  "title": "short episode title",
-  "description": "one-sentence summary for show notes",
-  "script": "the full spoken monologue",
-  "used_article_ids": [list of integer article ids you actually used],
-  "used_message_ids": [list of integer message ids you actually read]
-}}"""
+- Articles marked with "priority feed:" are must-include: cover EVERY one of them, at least briefly. \
+They come from rarely-updated feeds the listener never wants to miss.
+{article_block}"""
 
 
 def generate_episode(
@@ -231,19 +287,49 @@ def generate_episode(
         llm_provider=llm_provider,
         llm_model=llm_model,
     )
-    from .llm_providers import chat_completion
-
-    raw = chat_completion(
+    timer = LogTimer.start()
+    system = (
+        "You write clear, natural spoken news scripts with correct English punctuation — "
+        "factual but easy to follow, with brief transitions between sections."
+    )
+    raw = _chat_completion(
         provider_config=provider_config,
-        system=(
-            "You write clear, natural spoken news scripts — factual but easy to follow, "
-            "with brief transitions between sections. You always return valid JSON."
-        ),
+        system=system,
         user=prompt,
         temperature=0.5,
-        json_mode=provider_config.provider is not LlmProviderId.anthropic,
+        response_schema=EPISODE_CONTENT_JSON_SCHEMA,
+        response_schema_name="episode_content",
     )
+    audit = active_log()
+    if audit is not None:
+        audit.record(
+            "llm",
+            "Chat completion (write script)",
+            summary=f"{len(raw)} chars returned",
+            request={
+                "provider": provider_config.provider.value,
+                "model": provider_config.model,
+                "temperature": 0.5,
+                "response_schema": "episode_content",
+                "article_count": len(articles),
+                "message_count": len(messages),
+                "prompt_chars": len(prompt),
+                "system": system,
+                "prompt": prompt,
+            },
+            response={"raw_chars": len(raw), "raw": raw},
+            duration_ms=timer.elapsed_ms(),
+        )
     return _parse_episode_content(raw)
+
+
+def prepare_spoken_text(text: str) -> str:
+    """Normalize script text for TTS — no line breaks or literal escape sequences."""
+
+    cleaned = text.replace("\\n", " ").replace("\\r", " ").replace("\\t", " ")
+    cleaned = re.sub(r"[\r\n\t\f\v]+", " ", cleaned)
+    cleaned = re.sub(r" {2,}", " ", cleaned)
+    return cleaned.strip()
 
 
 def _parse_episode_content(raw: str) -> EpisodeContent:
@@ -256,7 +342,7 @@ def _parse_episode_content(raw: str) -> EpisodeContent:
             raise LLMError("LLM did not return JSON")
         data = json.loads(raw[start : end + 1])
 
-    script = (data.get("script") or "").strip()
+    script = prepare_spoken_text(data.get("script") or "")
     if not script:
         raise LLMError("LLM returned an empty script")
 
