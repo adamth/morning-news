@@ -25,13 +25,16 @@ from ..db import (
     Source,
     User,
     WatchlistItem,
+    WeeklyReport,
     get_session,
     get_settings,
     utcnow,
 )
+from ..episodes import EpisodeDeleteError, delete_episode
 from ..episode_log import category_label
 from ..health import get_health_report
 from ..news_categories import NEWS_CATEGORIES, parse_selected, serialize_selected
+from ..report_types import REPORT_TYPES, WEEKDAY_LABELS
 from ..llm_models import list_chat_models
 from ..llm_providers import (
     DEFAULT_LLM_MODELS,
@@ -161,6 +164,19 @@ def latest_episode_status(
             }
         }
     )
+
+
+@router.post("/episodes/{episode_id}/delete")
+def delete_episode_route(
+    episode_id: int,
+    user: User = Depends(web_user),
+    session: Session = Depends(get_session),
+):
+    try:
+        delete_episode(session, episode_id)
+    except EpisodeDeleteError as error:
+        return RedirectResponse(f"/episodes/{episode_id}?err={quote_plus(str(error))}", status_code=303)
+    return RedirectResponse("/?msg=Episode+deleted.", status_code=303)
 
 
 @router.get("/episodes/{episode_id}", response_class=HTMLResponse)
@@ -317,6 +333,9 @@ def settings_page(
                 }
                 for provider in WeatherProviderId
             ],
+            "weekly_reports": _weekly_report_map(session),
+            "weekly_report_days": WEEKDAY_LABELS,
+            "report_type_options": REPORT_TYPES,
         },
     )
 
@@ -808,6 +827,66 @@ def save_story_mix_settings(
     return RedirectResponse("/settings?msg=Story+mix+saved.", status_code=303)
 
 
+@router.post("/settings/weekly-reports")
+def save_weekly_reports(
+    user: User = Depends(web_user),
+    session: Session = Depends(get_session),
+    report_type: list[str] = Form(default=[]),
+    user_input: list[str] = Form(default=[]),
+):
+    """Persist per-weekday special-report configuration.
+
+    The form submits two parallel lists indexed by day position (0–6):
+    `report_type` and `user_input`. Empty `report_type` means "regular daily
+    news" — we still keep the row (and its `user_input`) so the user's notes
+    survive if they toggle a day off and back on.
+    """
+
+    if len(report_type) != 7 or len(user_input) != 7:
+        return RedirectResponse(
+            "/settings?err=Weekly+report+settings+were+malformed.+Please+try+again.#weekly-reports",
+            status_code=303,
+        )
+
+    existing = {row.day_of_week: row for row in session.exec(select(WeeklyReport)).all()}
+    changed = False
+    for day in range(7):
+        new_type = (report_type[day] or "").strip()
+        new_input = (user_input[day] or "").strip()
+        if new_type and new_type not in {rt.id for rt in REPORT_TYPES}:
+            new_type = ""
+        row = existing.get(day)
+        if row is None:
+            if new_type or new_input:
+                session.add(
+                    WeeklyReport(
+                        day_of_week=day,
+                        report_type=new_type,
+                        user_input=new_input,
+                        updated_at=utcnow(),
+                    )
+                )
+                changed = True
+            continue
+        if row.report_type != new_type or row.user_input != new_input:
+            row.report_type = new_type
+            row.user_input = new_input
+            row.updated_at = utcnow()
+            session.add(row)
+            changed = True
+
+    if changed:
+        session.commit()
+        return RedirectResponse(
+            "/settings?msg=Weekly+report+settings+saved.#weekly-reports",
+            status_code=303,
+        )
+    return RedirectResponse(
+        "/settings?msg=No+changes+to+save.#weekly-reports",
+        status_code=303,
+    )
+
+
 @router.post("/settings/voice")
 def save_voice_settings(
     user: User = Depends(web_user),
@@ -1110,6 +1189,17 @@ def add_user(
         return RedirectResponse("/settings/household?err=That+username+is+already+in+use.+Try+a+different+one.", status_code=303)
     create_user(session, username, password)
     return RedirectResponse("/settings/household?msg=Household+member+added.", status_code=303)
+
+
+def _weekly_report_map(session: Session) -> dict[int, WeeklyReport]:
+    """Return a {day_of_week: WeeklyReport} map covering all 7 days."""
+
+    rows = session.exec(select(WeeklyReport)).all()
+    by_day = {row.day_of_week: row for row in rows}
+    for day in range(7):
+        if day not in by_day:
+            by_day[day] = WeeklyReport(day_of_week=day, report_type="", user_input="")
+    return by_day
 
 
 def _safe_list_voices(settings, credentials):

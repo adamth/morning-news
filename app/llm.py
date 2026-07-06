@@ -41,12 +41,24 @@ class MessageInput:
 
 
 @dataclass
+class SpecialReport:
+    """A weekday-specific report (books, films, true story, …) spliced into the prompt."""
+
+    report_type_id: str
+    label: str
+    prompt: str
+    user_input: str = ""
+    recent_items: list[str] = field(default_factory=list)
+
+
+@dataclass
 class EpisodeContent:
     title: str
     description: str
     script: str
     used_article_ids: list[int] = field(default_factory=list)
     used_message_ids: list[int] = field(default_factory=list)
+    reported_items: list[str] = field(default_factory=list)
 
 
 EPISODE_CONTENT_JSON_SCHEMA: dict[str, Any] = {
@@ -78,8 +90,17 @@ EPISODE_CONTENT_JSON_SCHEMA: dict[str, Any] = {
             "items": {"type": "integer"},
             "description": "Personal message ids that were read aloud in the episode",
         },
+        "reported_items": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "Only when this is a special-report episode (books, films, true "
+                "story, etc.): the titles or subjects you actually covered, one "
+                "entry per item. Empty array for a regular news episode."
+            ),
+        },
     },
-    "required": ["title", "description", "script", "used_article_ids", "used_message_ids"],
+    "required": ["title", "description", "script", "used_article_ids", "used_message_ids", "reported_items"],
     "additionalProperties": False,
 }
 
@@ -151,6 +172,7 @@ def _build_generation_prompt(
     events: list[str],
     messages: list[MessageInput],
     articles: list[ArticleInput],
+    special_report: SpecialReport | None = None,
 ) -> str:
     midpoint_words = int(((target_min + target_max) / 2) * 150)
 
@@ -172,6 +194,33 @@ def _build_generation_prompt(
     excluded_block = ", ".join(excluded_topics) if excluded_topics else "(none)"
     market_block = market_text or "(not included today)"
     reaction_block = market_reaction or "(none)"
+
+    if special_report is not None:
+        user_input_block = special_report.user_input.strip() or "(none provided)"
+        if special_report.recent_items:
+            recent_block = "\n".join(f"- {item}" for item in special_report.recent_items)
+            recent_clause = (
+                "\n\nRECENTLY COVERED ON PAST SPECIAL REPORTS OF THIS TYPE (do not repeat "
+                "these — pick different titles, stories, or subjects today):\n"
+                f"{recent_block}"
+            )
+        else:
+            recent_clause = ""
+        special_section = f"""SPECIAL REPORT — {special_report.label.upper()}:
+{special_report.prompt}
+
+LISTENER'S TASTE / GUIDANCE FOR THIS REPORT:
+{user_input_block}{recent_clause}
+
+TODAY IS A SPECIAL-REPORT DAY. Lead with the greeting, weather, and (if any) calendar events,
+then deliver the special report as the body of the episode. Treat today's candidate news articles
+as background only — use them only if the report above asks for news (e.g. the "deep dive" report).
+Skip the regular news roundup unless the report's instructions explicitly call for it.
+
+When you finish, list every title or subject you actually covered in the `reported_items` array
+of your JSON output (one entry per item). This is how the show remembers not to repeat itself."""
+    else:
+        special_section = ""
 
     return f"""You are the writer and host of a personal daily audio news briefing called "{podcast_title}".
 Today is {date_text}. The listener's local area is {locality or "unspecified"}.
@@ -244,7 +293,9 @@ CANDIDATE NEWS ARTICLES (pick the strongest stories; use priorities above as a t
 - Articles marked with "feed:" come from RSS feeds the listener added — include at least one when relevant.
 - Articles marked with "priority feed:" are must-include: cover EVERY one of them, at least briefly. \
 They come from rarely-updated feeds the listener never wants to miss.
-{article_block}"""
+{article_block}
+
+{special_section}"""
 
 
 def generate_episode(
@@ -265,6 +316,7 @@ def generate_episode(
     events: list[str],
     messages: list[MessageInput],
     articles: list[ArticleInput],
+    special_report: SpecialReport | None = None,
 ) -> EpisodeContent:
     prompt = _build_generation_prompt(
         podcast_title=podcast_title,
@@ -280,6 +332,7 @@ def generate_episode(
         events=events,
         messages=messages,
         articles=articles,
+        special_report=special_report,
     )
 
     provider_config = _provider_config(
@@ -352,6 +405,11 @@ def _parse_episode_content(raw: str) -> EpisodeContent:
         script=script,
         used_article_ids=[int(value) for value in data.get("used_article_ids", []) if _is_int(value)],
         used_message_ids=[int(value) for value in data.get("used_message_ids", []) if _is_int(value)],
+        reported_items=[
+            str(value).strip()
+            for value in data.get("reported_items", [])
+            if str(value).strip()
+        ],
     )
 
 

@@ -121,6 +121,63 @@
 
   <hr class="settings-divider" />
 
+  <form method="post" action="/settings/weekly-reports" class="settings-form" id="weekly-reports">
+    <div class="settings-group">
+      <h2 class="settings-heading">
+        <span class="settings-heading-title">Weekly reports</span>
+        <span class="settings-tag settings-tag-optional">Optional</span>
+      </h2>
+      <p class="field-hint settings-group-lead">
+        Give certain weekdays their own focus. A day set to <em>Regular news</em> behaves as usual;
+        picking a report type swaps the news section for that day's special segment — book or film
+        suggestions, a true story, a deep dive on one story, or a short reflection. Weather, the
+        calendar, and personal messages still play as normal.
+      </p>
+      <div class="weekly-reports-list">
+        {% for day_index in range(7) %}
+        {% set report = weekly_reports[day_index] %}
+        <div class="weekly-report-row" data-day="{{ day_index }}">
+          <div class="weekly-report-day">{{ weekly_report_days[day_index] }}</div>
+          <div class="weekly-report-fields">
+            <div class="weekly-report-type">
+              <label class="sr-only" for="weekly_report_type_{{ day_index }}">{{ weekly_report_days[day_index] }} report type</label>
+              <select
+                id="weekly_report_type_{{ day_index }}"
+                name="report_type"
+                class="weekly-report-select"
+                data-day="{{ day_index }}"
+              >
+                <option value="" {{ 'selected' if not report.report_type else '' }}>Regular news</option>
+                {% for rt in report_type_options %}
+                <option value="{{ rt.id }}" {{ 'selected' if report.report_type == rt.id else '' }}>
+                  {{ rt.label }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="weekly-report-input">
+              <label class="sr-only" for="weekly_report_input_{{ day_index }}">{{ weekly_report_days[day_index] }} notes</label>
+              <textarea
+                id="weekly_report_input_{{ day_index }}"
+                name="user_input"
+                class="weekly-report-textarea"
+                rows="2"
+                placeholder="Notes for this report type appear here once you pick one above."
+              >{{ report.user_input }}</textarea>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="field-hint">Notes are saved per day, so you can switch a day off and back on without losing what you wrote.</div>
+      <div class="form-actions">
+        <button type="submit">Save weekly reports</button>
+      </div>
+    </div>
+  </form>
+
+  <hr class="settings-divider" />
+
   <div class="settings-form">
     <div class="settings-group" id="topics-to-skip">
       <h2 class="settings-heading">
@@ -476,6 +533,43 @@
 
 {% block scripts %}
 <script src="/static/location-autocomplete.js?v=4"></script>
+<script>
+  (() => {
+    const reportTypes = {
+      {% for rt in report_type_options %}
+      "{{ rt.id }}": {
+        label: {{ rt.input_label | tojson }},
+        hint: {{ rt.input_hint | tojson }},
+        placeholder: {{ rt.input_placeholder | tojson }},
+        wants_input: {{ rt.wants_input | tojson }},
+      },
+      {% endfor %}
+    };
+
+    const syncRow = (row) => {
+      const select = row.querySelector("select.weekly-report-select");
+      const inputWrap = row.querySelector(".weekly-report-input");
+      const textarea = row.querySelector("textarea.weekly-report-textarea");
+      if (!select || !inputWrap || !textarea) return;
+
+      const typeId = select.value.trim();
+      const meta = reportTypes[typeId];
+      if (!meta) {
+        inputWrap.dataset.empty = "true";
+        textarea.placeholder = "Notes for this report type appear here once you pick one above.";
+        return;
+      }
+      inputWrap.dataset.empty = meta.wants_input ? "false" : "true";
+      textarea.placeholder = meta.placeholder || meta.hint || "";
+    };
+
+    document.querySelectorAll(".weekly-report-row").forEach((row) => {
+      const select = row.querySelector("select.weekly-report-select");
+      syncRow(row);
+      select?.addEventListener("change", () => syncRow(row));
+    });
+  })();
+</script>
 <script>
   (() => {
     const randomize = document.getElementById("voice_randomize");
