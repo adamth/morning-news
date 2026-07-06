@@ -158,6 +158,37 @@ class WatchlistItem(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class WeeklyReport(SQLModel, table=True):
+    """Per-weekday special report configuration.
+
+    One row per day_of_week (0=Monday … 6=Sunday). `report_type` empty means
+    "regular daily news"; otherwise it's a key from `app.report_types.REPORT_TYPES`.
+    `user_input` carries free-text hints (e.g. books the household enjoys) that
+    the report type uses to tailor the episode.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    day_of_week: int = Field(index=True, unique=True)
+    report_type: str = ""
+    user_input: str = ""
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class ReportedItem(SQLModel, table=True):
+    """A title or subject covered by a past special-report episode.
+
+    Used to keep the next episode of the same type from repeating itself:
+    the pipeline loads the most recent items for a given report type and feeds
+    them back into the LLM prompt as "do not repeat these".
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    report_type: str = Field(index=True)
+    item: str
+    episode_id: int | None = Field(default=None, foreign_key="episode.id")
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class Message(SQLModel, table=True):
     """A private, one-time message queued by a user to be read aloud once."""
 

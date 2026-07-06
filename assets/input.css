@@ -552,6 +552,30 @@
     @apply min-w-0 flex-1;
   }
 
+  .weekly-reports-list {
+    @apply mt-2 flex flex-col divide-y divide-border/50 overflow-hidden rounded-lg border border-border/70;
+  }
+
+  .weekly-report-row {
+    @apply flex flex-col gap-3 bg-surface px-3 py-3 sm:flex-row sm:items-start sm:gap-4;
+  }
+
+  .weekly-report-day {
+    @apply w-28 shrink-0 pt-1.5 font-sans text-sm font-semibold text-ink;
+  }
+
+  .weekly-report-fields {
+    @apply flex min-w-0 flex-1 flex-col gap-2;
+  }
+
+  .weekly-report-textarea {
+    @apply min-h-[2.75rem] text-sm;
+  }
+
+  .weekly-report-input[data-empty="true"] {
+    @apply hidden;
+  }
+
   .checkbox-inline {
     @apply mt-5 flex cursor-pointer items-center gap-2.5 font-normal;
   }

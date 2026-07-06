@@ -21,6 +21,7 @@ from .db import (
     EpisodeStatus,
     Message,
     MessageStatus,
+    ReportedItem,
     Settings,
     Source,
     User,
@@ -30,6 +31,7 @@ from .db import (
     utcnow,
 )
 from .news_categories import format_priorities, parse_selected
+from .report_types import REPORT_TYPES, WEEKDAY_LABELS, get_report_type, is_special
 from .sources import news, weather
 from .sources.calendar import CalendarEvent, fetch_events
 from .sources.weather import WeatherSummary
@@ -292,6 +294,24 @@ def _run(
 
     # 6. Generate the script.
     timer = LogTimer.start()
+    special_report = _resolve_special_report(session, now_local)
+    if special_report is not None:
+        recent_items = _recent_reported_items(session, special_report.report_type_id, limit=5)
+        special_report.recent_items = recent_items
+    if audit is not None and special_report is not None:
+        audit.record(
+            "pipeline",
+            "Special report active",
+            summary=f"{special_report.label} (weekday {now_local.weekday()} — {WEEKDAY_LABELS[now_local.weekday()]})",
+            response={
+                "report_type": special_report.report_type_id,
+                "label": special_report.label,
+                "user_input_chars": len(special_report.user_input),
+                "user_input": special_report.user_input,
+                "recent_items_count": len(special_report.recent_items),
+                "recent_items": special_report.recent_items,
+            },
+        )
     content = llm.generate_episode(
         credentials=credentials,
         llm_provider=settings.llm_provider,
@@ -309,6 +329,7 @@ def _run(
         events=events_text,
         messages=message_inputs,
         articles=article_inputs,
+        special_report=special_report,
     )
     if audit is not None:
         audit.record(
@@ -321,6 +342,7 @@ def _run(
                 "script_chars": len(content.script),
                 "used_article_ids": content.used_article_ids,
                 "used_message_ids": content.used_message_ids,
+                "reported_items": content.reported_items,
                 "script": content.script,
             },
             duration_ms=timer.elapsed_ms(),
@@ -337,6 +359,27 @@ def _run(
                 url=used.url,
             )
         )
+
+    # 7b. Remember what this special report covered so future ones don't repeat it.
+    if special_report is not None and content.reported_items:
+        for item in content.reported_items:
+            session.add(
+                ReportedItem(
+                    report_type=special_report.report_type_id,
+                    item=item,
+                    episode_id=episode.id,
+                )
+            )
+        if audit is not None:
+            audit.record(
+                "pipeline",
+                "Stored reported items",
+                summary=f"{len(content.reported_items)} item(s) saved for {special_report.report_type_id}",
+                response={
+                    "report_type": special_report.report_type_id,
+                    "items": content.reported_items,
+                },
+            )
 
     # 8. Resolve included private messages (each used exactly once).
     used_message_ids = set(content.used_message_ids)
@@ -580,6 +623,56 @@ def _excluded_topics(session: Session) -> list[str]:
     from .db import Preference
 
     return [pref.topic for pref in session.exec(select(Preference)).all()]
+
+
+def _resolve_special_report(session: Session, now_local: datetime) -> llm.SpecialReport | None:
+    """Look up today's configured special report, if any."""
+
+    from .db import WeeklyReport
+
+    day_of_week = now_local.weekday()
+    row = session.exec(
+        select(WeeklyReport).where(WeeklyReport.day_of_week == day_of_week)
+    ).first()
+    if row is None or not is_special(row.report_type):
+        return None
+    report_type = get_report_type(row.report_type)
+    if report_type is None:
+        return None
+    return llm.SpecialReport(
+        report_type_id=report_type.id,
+        label=report_type.label,
+        prompt=report_type.prompt,
+        user_input=row.user_input,
+    )
+
+
+def _recent_reported_items(session: Session, report_type_id: str, *, limit: int = 5) -> list[str]:
+    """Return items covered by the last `limit` special reports of the given type.
+
+    Items are ordered most-recent first so the prompt sees the freshest coverage
+    at the top. We deduplicate case-insensitively while preserving order, so a
+    repeat that slipped through doesn't fill the list with noise.
+    """
+
+    if not report_type_id:
+        return []
+    rows = session.exec(
+        select(ReportedItem)
+        .where(ReportedItem.report_type == report_type_id)
+        .order_by(ReportedItem.created_at.desc())
+    ).all()
+    seen: set[str] = set()
+    items: list[str] = []
+    for row in rows:
+        key = row.item.strip().casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        items.append(row.item.strip())
+        if len(items) >= limit:
+            break
+    return items
 
 
 def _summarize_long_articles(
