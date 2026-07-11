@@ -8,7 +8,7 @@ from datetime import timezone
 
 from feedgen.feed import FeedGenerator
 
-from .db import Episode, EpisodeArticle, Settings
+from .db import Episode, EpisodeArticle, ReportedItem, Settings
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -17,7 +17,11 @@ def _plain_text(value: str) -> str:
     return html.unescape(_TAG_RE.sub("", value)).strip()
 
 
-def _episode_summary(episode: Episode, articles: list[EpisodeArticle]) -> str:
+def _episode_summary(
+    episode: Episode,
+    articles: list[EpisodeArticle],
+    reported_items: list[ReportedItem],
+) -> str:
     parts: list[str] = []
     if episode.description:
         parts.append(episode.description)
@@ -29,6 +33,8 @@ def _episode_summary(episode: Episode, articles: list[EpisodeArticle]) -> str:
         parts.append(f"Market: {episode.market_summary}")
     if articles:
         parts.append("In this episode: " + "; ".join(article.title for article in articles))
+    if reported_items:
+        parts.append("Mentioned: " + "; ".join(item.item for item in reported_items))
     return " ".join(parts) or "Your daily briefing."
 
 
@@ -43,7 +49,11 @@ def _artwork_url(base_url: str) -> str:
     return f"{base_url}/podcast-artwork.png"
 
 
-def _show_notes_html(episode: Episode, articles: list[EpisodeArticle]) -> str:
+def _show_notes_html(
+    episode: Episode,
+    articles: list[EpisodeArticle],
+    reported_items: list[ReportedItem],
+) -> str:
     parts: list[str] = []
     if episode.description:
         parts.append(f"<p>{html.escape(episode.description)}</p>")
@@ -60,17 +70,31 @@ def _show_notes_html(episode: Episode, articles: list[EpisodeArticle]) -> str:
             for article in articles
         )
         parts.append(f"<p><strong>In this episode:</strong></p><ul>{links}</ul>")
+    if reported_items:
+        items = "".join(
+            f"<li>{_reported_item_html(item)}</li>"
+            for item in reported_items
+        )
+        parts.append(f"<p><strong>Mentioned in this episode:</strong></p><ul>{items}</ul>")
     return "".join(parts) or "<p>Your daily briefing.</p>"
+
+
+def _reported_item_html(item: ReportedItem) -> str:
+    title = html.escape(item.item)
+    url = (item.url or "").strip()
+    if url:
+        return f'<a href="{html.escape(url)}">{title}</a>'
+    return title
 
 
 def build_feed(
     settings: Settings,
-    episodes: list[tuple[Episode, list[EpisodeArticle], int]],
+    episodes: list[tuple[Episode, list[EpisodeArticle], list[ReportedItem], int]],
     base_url: str,
 ) -> bytes:
     """Build the podcast RSS XML.
 
-    `episodes` is a list of (episode, show-note articles, audio byte length).
+    `episodes` is a list of (episode, show-note articles, reported items, audio byte length).
     """
 
     fg = FeedGenerator()
@@ -95,11 +119,11 @@ def build_feed(
         if subtitle:
             fg.podcast.itunes_subtitle(subtitle[:255])
 
-    for episode, articles, byte_length in episodes:
+    for episode, articles, reported_items, byte_length in episodes:
         entry = fg.add_entry()
         media_url = f"{base_url}/media/{episode.id}.mp3?token={settings.feed_token}"
-        summary = _episode_summary(episode, articles)
-        show_notes = _show_notes_html(episode, articles)
+        summary = _episode_summary(episode, articles, reported_items)
+        show_notes = _show_notes_html(episode, articles, reported_items)
         entry.id(media_url)
         entry.title(episode.title)
         entry.description(show_notes)

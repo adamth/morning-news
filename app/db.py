@@ -185,6 +185,7 @@ class ReportedItem(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     report_type: str = Field(index=True)
     item: str
+    url: str = ""
     episode_id: int | None = Field(default=None, foreign_key="episode.id")
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -298,6 +299,7 @@ def _migrate_schema() -> None:
         "UPDATE settings SET weather_provider = 'metno' WHERE weather_provider IS NULL OR weather_provider = '' OR weather_provider = 'accuweather'",
         "ALTER TABLE settings ADD COLUMN weatherapi_api_key_enc TEXT DEFAULT ''",
         "UPDATE settings SET weather_provider = 'open_meteo' WHERE weather_provider = 'metno'",
+        "ALTER TABLE reporteditem ADD COLUMN url TEXT DEFAULT ''",
     )
     with engine.connect() as connection:
         for statement in migrations:

@@ -30,7 +30,7 @@
   </section>
   {% endif %}
 
-  {% if articles %}
+  {% if articles or reported_items %}
   <section class="section">
     <h2 class="mb-4">Show notes</h2>
     <ul>
@@ -39,6 +39,17 @@
         <div>
           <div><a href="{{ article.url }}" target="_blank" rel="noopener">{{ article.title }}</a></div>
           {% if article.publisher %}<div class="list-meta">{{ article.publisher }}</div>{% endif %}
+        </div>
+      </li>
+      {% endfor %}
+      {% for item in reported_items %}
+      <li class="list-row">
+        <div>
+          {% if item.url %}
+          <div><a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.item }}</a></div>
+          {% else %}
+          <div>{{ item.item }}</div>
+          {% endif %}
         </div>
       </li>
       {% endfor %}
