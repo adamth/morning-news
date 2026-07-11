@@ -22,6 +22,7 @@ from ..db import (
     Message,
     MessageStatus,
     Preference,
+    ReportedItem,
     Source,
     User,
     WatchlistItem,
@@ -192,6 +193,9 @@ def episode_page(
     articles = session.exec(
         select(EpisodeArticle).where(EpisodeArticle.episode_id == episode_id)
     ).all()
+    reported_items = session.exec(
+        select(ReportedItem).where(ReportedItem.episode_id == episode_id)
+    ).all()
     log_entries = session.exec(
         select(EpisodeLogEntry)
         .where(EpisodeLogEntry.episode_id == episode_id)
@@ -208,6 +212,7 @@ def episode_page(
             "active": "dashboard",
             "episode": episode,
             "articles": articles,
+            "reported_items": reported_items,
             "log_groups": log_groups,
             "media_url": media_url,
         },

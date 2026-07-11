@@ -9,7 +9,7 @@ from fastapi.responses import Response
 from sqlmodel import Session, select
 
 from ..config import config
-from ..db import Episode, EpisodeArticle, EpisodeStatus, get_session, get_settings
+from ..db import Episode, EpisodeArticle, EpisodeStatus, ReportedItem, get_session, get_settings
 from ..feed import build_feed
 from ..urls import resolve_base_url
 
@@ -37,7 +37,7 @@ def podcast_feed(
         .limit(50)
     ).all()
 
-    enriched: list[tuple[Episode, list[EpisodeArticle], int]] = []
+    enriched: list[tuple[Episode, list[EpisodeArticle], list[ReportedItem], int]] = []
     for episode in episodes:
         if not episode.audio_path:
             continue
@@ -47,7 +47,10 @@ def podcast_feed(
         articles = session.exec(
             select(EpisodeArticle).where(EpisodeArticle.episode_id == episode.id)
         ).all()
-        enriched.append((episode, articles, audio_file.stat().st_size))
+        reported_items = session.exec(
+            select(ReportedItem).where(ReportedItem.episode_id == episode.id)
+        ).all()
+        enriched.append((episode, articles, reported_items, audio_file.stat().st_size))
 
     xml = build_feed(settings, enriched, resolve_base_url(request))
     return Response(content=xml, media_type="application/rss+xml")

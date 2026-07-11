@@ -343,6 +343,10 @@ def _run(
                 "used_article_ids": content.used_article_ids,
                 "used_message_ids": content.used_message_ids,
                 "reported_items": content.reported_items,
+                "reported_links": [
+                    {"title": link.title, "url": link.url}
+                    for link in content.reported_links
+                ],
                 "script": content.script,
             },
             duration_ms=timer.elapsed_ms(),
@@ -361,12 +365,22 @@ def _run(
         )
 
     # 7b. Remember what this special report covered so future ones don't repeat it.
-    if special_report is not None and content.reported_items:
-        for item in content.reported_items:
+    if special_report is not None and (content.reported_items or content.reported_links):
+        link_by_title: dict[str, str] = {
+            link.title.strip().casefold(): link.url.strip()
+            for link in content.reported_links
+        }
+        covered_titles: list[str] = list(content.reported_items)
+        for link in content.reported_links:
+            if link.title.strip() and link.title.strip() not in covered_titles:
+                covered_titles.append(link.title.strip())
+        for title in covered_titles:
+            url = link_by_title.get(title.strip().casefold(), "")
             session.add(
                 ReportedItem(
                     report_type=special_report.report_type_id,
-                    item=item,
+                    item=title,
+                    url=url,
                     episode_id=episode.id,
                 )
             )
@@ -374,10 +388,14 @@ def _run(
             audit.record(
                 "pipeline",
                 "Stored reported items",
-                summary=f"{len(content.reported_items)} item(s) saved for {special_report.report_type_id}",
+                summary=f"{len(covered_titles)} item(s) saved for {special_report.report_type_id}",
                 response={
                     "report_type": special_report.report_type_id,
-                    "items": content.reported_items,
+                    "items": covered_titles,
+                    "reported_links": [
+                        {"title": link.title, "url": link.url}
+                        for link in content.reported_links
+                    ],
                 },
             )
 

@@ -52,6 +52,14 @@ class SpecialReport:
 
 
 @dataclass
+class ReportedLink:
+    """A title/subject covered by a special-report episode and a canonical link for show notes."""
+
+    title: str
+    url: str = ""
+
+
+@dataclass
 class EpisodeContent:
     title: str
     description: str
@@ -59,6 +67,7 @@ class EpisodeContent:
     used_article_ids: list[int] = field(default_factory=list)
     used_message_ids: list[int] = field(default_factory=list)
     reported_items: list[str] = field(default_factory=list)
+    reported_links: list[ReportedLink] = field(default_factory=list)
 
 
 EPISODE_CONTENT_JSON_SCHEMA: dict[str, Any] = {
@@ -99,8 +108,38 @@ EPISODE_CONTENT_JSON_SCHEMA: dict[str, Any] = {
                 "entry per item. Empty array for a regular news episode."
             ),
         },
+        "reported_links": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "The title or subject of the item, as you said it on air",
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": (
+                            "A canonical, stable link the listener can open to learn "
+                            "more or find the item. Use Goodreads book pages for "
+                            "books, IMDb titles for films/TV, Wikipedia or another "
+                            "reputable source for true stories, and the source "
+                            "article URL for a news deep dive. Omit the entry if no "
+                            "suitable public link exists."
+                        ),
+                    },
+                },
+                "required": ["title", "url"],
+                "additionalProperties": False,
+            },
+            "description": (
+                "Only when this is a special-report episode: one {title, url} "
+                "entry per item you covered, so show notes can link to it. Empty "
+                "array for a regular news episode or when no link applies."
+            ),
+        },
     },
-    "required": ["title", "description", "script", "used_article_ids", "used_message_ids", "reported_items"],
+    "required": ["title", "description", "script", "used_article_ids", "used_message_ids", "reported_items", "reported_links"],
     "additionalProperties": False,
 }
 
@@ -218,7 +257,13 @@ as background only — use them only if the report above asks for news (e.g. the
 Skip the regular news roundup unless the report's instructions explicitly call for it.
 
 When you finish, list every title or subject you actually covered in the `reported_items` array
-of your JSON output (one entry per item). This is how the show remembers not to repeat itself."""
+of your JSON output (one entry per item). This is how the show remembers not to repeat itself.
+
+Also fill the `reported_links` array with one {title, url} entry per item you covered, so show
+notes can link listeners to each one. Use a canonical, stable public URL: Goodreads book pages
+for books, IMDb titles for films and TV shows, Wikipedia or another reputable source for true
+stories, and the source article URL for a news deep dive. If no public link truly fits an item,
+omit that entry from `reported_links` (but still list the item in `reported_items`)."""
     else:
         special_section = ""
 
@@ -410,6 +455,7 @@ def _parse_episode_content(raw: str) -> EpisodeContent:
             for value in data.get("reported_items", [])
             if str(value).strip()
         ],
+        reported_links=_parse_reported_links(data.get("reported_links")),
     )
 
 
@@ -419,3 +465,20 @@ def _is_int(value) -> bool:
         return True
     except (TypeError, ValueError):
         return False
+
+
+def _parse_reported_links(raw: object) -> list[ReportedLink]:
+    """Extract {title, url} entries from the LLM's reported_links output."""
+
+    if not isinstance(raw, list):
+        return []
+    links: list[ReportedLink] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        title = str(entry.get("title") or "").strip()
+        url = str(entry.get("url") or "").strip()
+        if not title:
+            continue
+        links.append(ReportedLink(title=title, url=url))
+    return links
