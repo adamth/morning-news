@@ -114,6 +114,11 @@ npm run dev
 # Then open Settings → Connections to add a narration key (ElevenLabs or Speechify) and an LLM key.
 ```
 
+If the [Infisical CLI](https://infisical.com/docs/cli/overview) is installed, the dev
+script injects secrets with `infisical run` (project config in `.infisical.json`, run
+`infisical login` once). Without the CLI it falls back to sourcing `.env`. Docker
+deploys are unaffected and keep using `.env`.
+
 `ffmpeg` must be installed locally for audio assembly (`brew install ffmpeg` /
 `apt install ffmpeg`).
 

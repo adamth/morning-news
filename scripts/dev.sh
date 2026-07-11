@@ -4,11 +4,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
 
-if [[ -f .env ]]; then
+# Local dev pulls secrets from Infisical (see .infisical.json). Falls back to
+# .env so the script still works without the CLI. Docker deploys don't use this
+# script and keep reading .env via compose.
+USE_INFISICAL=0
+if command -v infisical >/dev/null 2>&1; then
+  USE_INFISICAL=1
+elif [[ -f .env ]]; then
   set -a
   # shellcheck disable=SC1091
   source .env
   set +a
+else
+  echo "infisical CLI not found and no .env file present; starting without secrets" >&2
 fi
 
 export DATA_DIR="${DATA_DIR:-./data}"
@@ -28,4 +36,7 @@ npm run watch:css &
 CSS_PID=$!
 trap 'kill "${CSS_PID}" 2>/dev/null || true' EXIT INT TERM
 
+if [[ "${USE_INFISICAL}" -eq 1 ]]; then
+  exec infisical run -- "${UVICORN}" app.main:app --reload --port "${PORT:-8080}"
+fi
 exec "${UVICORN}" app.main:app --reload --port "${PORT:-8080}"

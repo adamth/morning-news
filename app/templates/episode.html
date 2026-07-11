@@ -95,5 +95,25 @@
     </div>
   </section>
   {% endif %}
+
+  {% if episode.status.value != 'generating' %}
+  <section class="section">
+    <h2 class="mb-2">Delete episode</h2>
+    <p class="page-lead mb-4 text-base">
+      Remove this episode from your podcast feed. Its audio, show notes, and generation log will be deleted.
+      Stories from this episode can appear in a future show again.
+      {% if episode.status.value == 'ready' %}
+      Private messages read aloud in this episode will be queued again.
+      {% endif %}
+    </p>
+    <form
+      method="post"
+      action="/episodes/{{ episode.id }}/delete"
+      data-confirm="Delete &ldquo;{{ episode.title }}&rdquo;? This cannot be undone."
+    >
+      <button class="btn btn-danger btn-sm" type="submit">Delete episode</button>
+    </form>
+  </section>
+  {% endif %}
 </div>
 {% endblock %}
