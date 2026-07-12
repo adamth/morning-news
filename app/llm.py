@@ -259,7 +259,7 @@ Skip the regular news roundup unless the report's instructions explicitly call f
 When you finish, list every title or subject you actually covered in the `reported_items` array
 of your JSON output (one entry per item). This is how the show remembers not to repeat itself.
 
-Also fill the `reported_links` array with one {title, url} entry per item you covered, so show
+Also fill the `reported_links` array with one {{title, url}} entry per item you covered, so show
 notes can link listeners to each one. Use a canonical, stable public URL: Goodreads book pages
 for books, IMDb titles for films and TV shows, Wikipedia or another reputable source for true
 stories, and the source article URL for a news deep dive. If no public link truly fits an item,
