@@ -168,7 +168,30 @@ class TestBuildFeed:
         assert b"<rss" in xml
         assert b"Test Podcast" in xml
         assert b"Episode 1" in xml
-        assert b"https://example.com/media/1.mp3?token=test-token" in xml
+        assert b"https://example.com/media/1.mp3" in xml
+        assert b"token=" not in xml.replace(b"feed.xml?token=test-token", b"")
+
+    def test_preserves_newest_first_order(self):
+        settings = self._settings()
+        newest = Episode(
+            id=2,
+            title="Newest Episode",
+            description="",
+            status=EpisodeStatus.ready,
+            audio_path="2.mp3",
+            created_at=datetime(2026, 7, 13, 7, 0, 0, tzinfo=timezone.utc),
+        )
+        oldest = Episode(
+            id=1,
+            title="Oldest Episode",
+            description="",
+            status=EpisodeStatus.ready,
+            audio_path="1.mp3",
+            created_at=datetime(2026, 7, 12, 7, 0, 0, tzinfo=timezone.utc),
+        )
+        # Callers pass episodes newest-first; the feed must keep that order.
+        xml = build_feed(settings, [(newest, [], [], 1), (oldest, [], [], 1)], "https://example.com")
+        assert xml.index(b"Newest Episode") < xml.index(b"Oldest Episode")
 
     def test_feed_includes_reported_items_in_show_notes(self):
         settings = self._settings()

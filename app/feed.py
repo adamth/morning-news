@@ -120,8 +120,8 @@ def build_feed(
             fg.podcast.itunes_subtitle(subtitle[:255])
 
     for episode, articles, reported_items, byte_length in episodes:
-        entry = fg.add_entry()
-        media_url = f"{base_url}/media/{episode.id}.mp3?token={settings.feed_token}"
+        entry = fg.add_entry(order="append")
+        media_url = f"{base_url}/media/{episode.id}.mp3"
         summary = _episode_summary(episode, articles, reported_items)
         show_notes = _show_notes_html(episode, articles, reported_items)
         entry.id(media_url)

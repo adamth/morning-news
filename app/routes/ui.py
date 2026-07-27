@@ -115,7 +115,6 @@ def dashboard(
         ):
             latest_episode_media_url = (
                 f"{resolve_base_url(request)}/media/{latest_episode.id}.mp3"
-                f"?token={settings.feed_token}"
             )
     base_url = resolve_base_url(request)
     feed_url = f"{base_url}/feed.xml?token={settings.feed_token}"
@@ -202,8 +201,7 @@ def episode_page(
         .order_by(EpisodeLogEntry.sequence)
     ).all()
     log_groups = _group_log_entries(log_entries)
-    settings = get_settings(session)
-    media_url = f"{resolve_base_url(request)}/media/{episode.id}.mp3?token={settings.feed_token}"
+    media_url = f"{resolve_base_url(request)}/media/{episode.id}.mp3"
     return templates.TemplateResponse(
         request,
         "episode.html",

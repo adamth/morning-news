@@ -99,8 +99,9 @@ volume, so you can't accidentally run with ephemeral storage.
 5. **Settings → Basic** — location, schedule, RSS sources, voice, topic exclusions.
 6. **System status** — confirm everything connects.
 7. Copy the **RSS feed URL** from the dashboard into your podcast app. The URL contains
-  an unguessable token so podcast apps can download episodes without logging in — treat
-   it like a password.
+  an unguessable token so podcast apps can subscribe without logging in - treat
+   it like a password. Episode audio itself is served without a token, and the newest
+   episode is always available at `/media/latest.mp3`.
 
 **Updating:** `git pull && docker compose up -d --build`
 
