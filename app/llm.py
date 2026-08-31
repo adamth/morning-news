@@ -328,7 +328,8 @@ STOCK WATCHLIST (aggregate 24-hour performance — do NOT read individual stocks
 MARKET REACTION HINT (paraphrase into one short spoken aside; do not read verbatim if stiff):
 {reaction_block}
 
-CALENDAR EVENTS TODAY:
+CALENDAR EVENTS TODAY (an event prefixed with a name, like "Work:", says which calendar \
+it came from — say whose day it belongs to rather than reading the prefix as part of the title):
 {events_block}
 
 PERSONAL MESSAGES TO INCLUDE (read each one that you use, then list its id in used_message_ids):

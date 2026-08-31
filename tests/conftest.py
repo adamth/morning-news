@@ -73,7 +73,6 @@ def settings(db_session):
     settings.longitude = 0.0
     settings.weather_enabled = True
     settings.stocks_enabled = False
-    settings.calendar_url = ""
     settings.target_minutes_min = 1.5
     settings.target_minutes_max = 3.0
     settings.llm_provider = "openai"
@@ -209,7 +208,16 @@ def mock_news(monkeypatch):
     return articles
 
 
-def _stub_gather_source_data(*, settings, credentials, sources, stock_symbols, aired_urls=None, aired_titles=None):
+def _stub_gather_source_data(
+    *,
+    settings,
+    credentials,
+    sources,
+    calendar_sources,
+    stock_symbols,
+    aired_urls=None,
+    aired_titles=None,
+):
     """Replacement for pipeline._gather_source_data that avoids all network I/O."""
 
     from app.pipeline import _SourceGatherResult
@@ -244,7 +252,7 @@ def _stub_gather_source_data(*, settings, credentials, sources, stock_symbols, a
         weather_summary=weather_summary,
         market_text=market_text,
         market_reaction=market_reaction,
-        events=[],
+        events=pipeline_module.fetch_all_events(calendar_sources, settings.timezone),
     )
 
 
@@ -273,7 +281,11 @@ def mock_stocks(monkeypatch):
 
 @pytest.fixture()
 def mock_calendar(monkeypatch):
-    monkeypatch.setattr(calendar_module, "fetch_events", lambda url, tz="UTC": [])
+    def stub_fetch_all_events(sources, timezone_name="UTC"):
+        return []
+
+    monkeypatch.setattr(calendar_module, "fetch_all_events", stub_fetch_all_events)
+    monkeypatch.setattr(pipeline_module, "fetch_all_events", stub_fetch_all_events)
 
 
 @pytest.fixture()

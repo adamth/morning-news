@@ -15,6 +15,7 @@ from ..audio import probe_duration
 from ..config import config
 from ..credentials import apply_secret_updates, load_credentials
 from ..db import (
+    CalendarFeed,
     Episode,
     EpisodeArticle,
     EpisodeLogEntry,
@@ -351,6 +352,7 @@ def household_settings_page(
 ):
     settings = get_settings(session)
     users = session.exec(select(User).order_by(User.created_at)).all()
+    calendars = session.exec(select(CalendarFeed).order_by(CalendarFeed.created_at)).all()
     return templates.TemplateResponse(
         request,
         "settings_household.html",
@@ -361,6 +363,7 @@ def household_settings_page(
             "s": settings,
             "setup": _setup_checklist(session, settings),
             "users": users,
+            "calendars": calendars,
         },
     )
 
@@ -699,18 +702,51 @@ def save_settings(
     return RedirectResponse("/settings?msg=Schedule+and+location+saved.+The+next+episode+will+use+these+settings.", status_code=303)
 
 
-@router.post("/settings/calendar")
-def save_calendar(
+@router.post("/calendars")
+def add_calendar(
     user: User = Depends(web_user),
     session: Session = Depends(get_session),
-    calendar_url: str = Form(""),
+    url: str = Form(...),
+    label: str = Form(""),
 ):
-    settings = get_settings(session)
-    settings.calendar_url = calendar_url.strip()
-    settings.updated_at = utcnow()
-    session.add(settings)
+    calendar_url = url.strip()
+    if not calendar_url:
+        return RedirectResponse(
+            "/settings/household?err=Paste+a+calendar+link+to+add+it.#calendar",
+            status_code=303,
+        )
+    session.add(CalendarFeed(url=calendar_url, label=label.strip()))
     session.commit()
-    return RedirectResponse("/settings/household?msg=Calendar+link+saved.", status_code=303)
+    return RedirectResponse("/settings/household?msg=Calendar+added.#calendar", status_code=303)
+
+
+@router.post("/calendars/{feed_id}/toggle")
+def toggle_calendar(
+    feed_id: int,
+    user: User = Depends(web_user),
+    session: Session = Depends(get_session),
+):
+    feed = session.get(CalendarFeed, feed_id)
+    message = "Calendar+not+found."
+    if feed is not None:
+        feed.enabled = not feed.enabled
+        session.add(feed)
+        session.commit()
+        message = "Calendar+turned+on." if feed.enabled else "Calendar+turned+off."
+    return RedirectResponse(f"/settings/household?msg={message}#calendar", status_code=303)
+
+
+@router.post("/calendars/{feed_id}/delete")
+def delete_calendar(
+    feed_id: int,
+    user: User = Depends(web_user),
+    session: Session = Depends(get_session),
+):
+    feed = session.get(CalendarFeed, feed_id)
+    if feed is not None:
+        session.delete(feed)
+        session.commit()
+    return RedirectResponse("/settings/household?msg=Calendar+removed.#calendar", status_code=303)
 
 
 @router.post("/settings/stocks")

@@ -15,7 +15,16 @@ from sqlmodel import Session, select, text
 
 from .config import config
 from .credentials import Credentials, fingerprint_secret, load_credentials
-from .db import HealthCheckCache, Settings, Source, WatchlistItem, engine, get_settings, utcnow
+from .db import (
+    CalendarFeed,
+    HealthCheckCache,
+    Settings,
+    Source,
+    WatchlistItem,
+    engine,
+    get_settings,
+    utcnow,
+)
 from .llm_providers import (
     LlmProviderId,
     PROVIDER_LABELS,
@@ -554,16 +563,16 @@ def _probe_google_news(settings: Settings) -> tuple[CheckStatus, str]:
     return CheckStatus.ok, "Local headlines are reachable"
 
 
-def _probe_calendar(settings: Settings) -> tuple[CheckStatus, str]:
-    calendar_url = settings.calendar_url.strip()
+def _probe_calendar(feed: CalendarFeed) -> tuple[CheckStatus, str]:
+    calendar_url = feed.url.strip()
     if not calendar_url:
-        return CheckStatus.skipped, "Optional — add a shared calendar link on Settings → Basic"
-    ical_text = _try_http_ics(calendar_url)
-    if ical_text:
+        return CheckStatus.skipped, "No link saved for this calendar"
+    if _try_http_ics(calendar_url, feed.label):
         return CheckStatus.ok, "Calendar link returned events"
     return (
         CheckStatus.error,
-        "Could not read that calendar link — try a direct subscription URL (often ends in .ics)",
+        "Could not read that calendar link over plain HTTP — try a direct subscription URL "
+        "(often ends in .ics). A CalDAV address is still tried when the episode is built.",
     )
 
 
@@ -666,6 +675,11 @@ def run_health_checks(session: Session, *, force_all: bool = False) -> HealthRep
     sources = session.exec(
         select(Source).where(Source.enabled == True).order_by(Source.created_at)  # noqa: E712
     ).all()
+    calendars = session.exec(
+        select(CalendarFeed)
+        .where(CalendarFeed.enabled == True)  # noqa: E712
+        .order_by(CalendarFeed.created_at)
+    ).all()
 
     checks: list[HealthCheck] = [
         *run_liveness_checks().checks,
@@ -756,14 +770,6 @@ def run_health_checks(session: Session, *, force_all: bool = False) -> HealthRep
             probe=lambda: _probe_google_news(settings),
         ),
         _run_check(
-            check_id="calendar",
-            name="Family calendar",
-            description="Today's events mentioned in the episode",
-            group="content",
-            required=False,
-            probe=lambda: _probe_calendar(settings),
-        ),
-        _run_check(
             check_id="stocks",
             name="Stock watch",
             description="24-hour performance for your watchlist",
@@ -772,6 +778,18 @@ def run_health_checks(session: Session, *, force_all: bool = False) -> HealthRep
             probe=lambda: _probe_stocks(session, settings, credentials),
         ),
     ]
+
+    for feed in calendars:
+        checks.append(
+            _run_check(
+                check_id=f"calendar_{feed.id}",
+                name=feed.label.strip() or "Calendar",
+                description="Today's events mentioned in the episode",
+                group="content",
+                required=False,
+                probe=lambda feed=feed: _probe_calendar(feed),
+            )
+        )
 
     for source in sources:
         checks.append(
