@@ -43,6 +43,19 @@ class TestParseEpisodeContent:
         assert len(content.reported_links) == 1
         assert content.reported_links[0].title == "Book A"
 
+    def test_parses_market_comment(self):
+        raw = json.dumps({
+            "title": "Test Episode",
+            "script": "Hello world.",
+            "market_comment": "  The watchlist is napping.  ",
+        })
+        content = _parse_episode_content(raw)
+        assert content.market_comment == "The watchlist is napping."
+
+    def test_market_comment_defaults_to_empty(self):
+        raw = json.dumps({"title": "Test Episode", "script": "Hello world."})
+        assert _parse_episode_content(raw).market_comment == ""
+
     def test_strips_whitespace_from_title(self):
         raw = json.dumps({"title": "  Spaced  ", "script": "Hi."})
         content = _parse_episode_content(raw)
@@ -186,13 +199,13 @@ class TestBuildGenerationPrompt:
         # sees the JSON shape it should return.
         assert "{title, url}" in prompt
 
-    def test_special_report_prompt_includes_recent_items(self):
+    def test_special_report_prompt_includes_covered_items(self):
         report = SpecialReport(
             report_type_id="books",
             label="Book recommendations",
             prompt="Recommend books.",
             user_input="I like sci-fi",
-            recent_items=["Project Hail Mary", "Dune"],
+            covered_items=["Project Hail Mary", "Dune"],
         )
         kwargs = self._base_kwargs()
         kwargs["special_report"] = report
@@ -202,6 +215,53 @@ class TestBuildGenerationPrompt:
         assert "Project Hail Mary" in prompt
         assert "Dune" in prompt
         assert "do not repeat" in prompt.lower()
+
+    def test_market_prompt_lists_past_asides(self):
+        kwargs = self._base_kwargs()
+        kwargs["past_market_comments"] = [
+            "The watchlist woke up on the right side of the bed.",
+            "Flat day. Your watchlist is napping.",
+        ]
+
+        prompt = _build_generation_prompt(**kwargs)
+
+        assert "MARKET ASIDES ALREADY USED" in prompt
+        assert "woke up on the right side of the bed" in prompt
+        assert "your watchlist is napping" in prompt.lower()
+        assert "do not repeat or rework" in prompt.lower()
+
+    def test_market_prompt_without_past_asides(self):
+        prompt = _build_generation_prompt(**self._base_kwargs())
+
+        assert "(none yet)" in prompt
+
+    def test_special_report_prompt_includes_variety_axis(self):
+        report = SpecialReport(
+            report_type_id="true_story",
+            label="A true story",
+            prompt="Tell a story.",
+            variety_axis="a story from the 19th century",
+        )
+        kwargs = self._base_kwargs()
+        kwargs["special_report"] = report
+
+        prompt = _build_generation_prompt(**kwargs)
+
+        assert "a story from the 19th century" in prompt
+        assert "TODAY'S ANGLE" in prompt
+
+    def test_special_report_prompt_omits_variety_axis_when_unset(self):
+        report = SpecialReport(
+            report_type_id="books",
+            label="Book recommendations",
+            prompt="Recommend books.",
+        )
+        kwargs = self._base_kwargs()
+        kwargs["special_report"] = report
+
+        prompt = _build_generation_prompt(**kwargs)
+
+        assert "TODAY'S ANGLE" not in prompt
 
     def test_special_report_prompt_includes_user_input(self):
         report = SpecialReport(
@@ -230,20 +290,20 @@ class TestBuildGenerationPrompt:
         prompt = _build_generation_prompt(**kwargs)
         assert "(none provided)" in prompt
 
-    def test_special_report_prompt_handles_empty_recent_items(self):
+    def test_special_report_prompt_handles_empty_covered_items(self):
         report = SpecialReport(
             report_type_id="books",
             label="Book recommendations",
             prompt="Recommend books.",
             user_input="thrillers",
-            recent_items=[],
+            covered_items=[],
         )
         kwargs = self._base_kwargs()
         kwargs["special_report"] = report
 
         prompt = _build_generation_prompt(**kwargs)
-        # Should not include the "recently covered" section at all.
-        assert "RECENTLY COVERED" not in prompt
+        # Should not include the exclusion section at all.
+        assert "ALREADY COVERED" not in prompt
 
     def test_special_report_prompt_contains_reported_links_instructions(self):
         report = SpecialReport(

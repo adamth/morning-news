@@ -301,6 +301,7 @@ def mock_llm(monkeypatch):
             "used_message_ids": [],
             "reported_items": [],
             "reported_links": [],
+            "market_comment": "",
         }
     }
     calls: list[dict[str, Any]] = []
@@ -348,6 +349,7 @@ def make_episode_json():
             "used_message_ids": [],
             "reported_items": [],
             "reported_links": [],
+            "market_comment": "",
         }
         base.update(overrides)
         return json.dumps(base)

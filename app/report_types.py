@@ -31,6 +31,13 @@ class ReportType:
     input_hint: str
     input_placeholder: str
     wants_input: bool = True
+    variety_axes: tuple[str, ...] = ()
+    """Angles the pipeline steps through, one per episode.
+
+    Asking an LLM for "an interesting true story" pulls from a small set of
+    canonical answers, so excluding past picks alone still converges. A fresh
+    constraint each day pushes it into a different corner of the space.
+    """
 
 
 REPORT_TYPES: tuple[ReportType, ...] = (
@@ -90,7 +97,11 @@ REPORT_TYPES: tuple[ReportType, ...] = (
             "narrate it as a short story with a beginning, middle, and end. Avoid "
             "tragedies that centre on suffering; lean toward wonder, ingenuity, or "
             "serendipity. If the listener named a topic below, pick a story about "
-            "it; otherwise choose freely. End with a warm sign-off."
+            "it; otherwise choose freely. End with a warm sign-off.\n\n"
+            "The story must be one this show has never told before. Reach past the "
+            "handful of anecdotes that get retold everywhere — if a story is a "
+            "staple of listicles and pub trivia, pick a different one. Obscure and "
+            "well-documented beats famous."
         ),
         input_label="Topics you find fascinating",
         input_hint=(
@@ -98,6 +109,28 @@ REPORT_TYPES: tuple[ReportType, ...] = (
             "story about it — space, the sea, a particular place or era, etc."
         ),
         input_placeholder="e.g. the deep sea, forgotten women in science, polar exploration",
+        variety_axes=(
+            "a story set before the year 1500",
+            "a story from the 16th, 17th, or 18th century",
+            "a story from the 19th century",
+            "a story from the first half of the 20th century",
+            "a story from the last fifty years",
+            "a story from Africa",
+            "a story from South or Central America",
+            "a story from East, South, or Southeast Asia",
+            "a story from the Pacific islands, Australia, or New Zealand",
+            "a story from Eastern Europe, the Middle East, or Central Asia",
+            "a story about the natural world — an animal, a plant, the weather, the ground itself",
+            "a story about a machine, a building, or a piece of engineering",
+            "a story about art, music, language, or food",
+            "a story about medicine, or a laboratory accident that led somewhere",
+            "a story about navigation, mapping, or the sea",
+            "a story about an ordinary person history nearly forgot",
+            "a story about something lost and later found",
+            "a story about a mistake that turned out well",
+            "a story about a correspondence, a rivalry, or an unlikely friendship",
+            "a story about a hoax, a puzzle, or a long-running mystery that was solved",
+        ),
     ),
     ReportType(
         id="deep_dive",

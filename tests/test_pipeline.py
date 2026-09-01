@@ -258,7 +258,7 @@ class TestSpecialReportEpisode:
         reported = db_session.exec(select(ReportedItem)).all()
         assert len(reported) == 0
 
-    def test_recent_reported_items_passed_to_llm(self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json):
+    def test_covered_items_passed_to_llm(self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json):
         today_weekday = datetime.now().weekday()
         db_session.add(WeeklyReport(day_of_week=today_weekday, report_type="books", user_input="thrillers"))
         db_session.commit()
@@ -277,10 +277,115 @@ class TestSpecialReportEpisode:
         assert "The Silent Patient" in llm_prompt
         assert "do not repeat" in llm_prompt.lower()
 
+    def test_whole_story_history_passed_to_llm(self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json):
+        """Every past story is excluded, not just the most recent handful."""
+
+        today_weekday = datetime.now().weekday()
+        db_session.add(WeeklyReport(day_of_week=today_weekday, report_type="true_story", user_input=""))
+        db_session.commit()
+
+        episode = Episode(title="Old episode", status=EpisodeStatus.ready)
+        db_session.add(episode)
+        db_session.commit()
+        db_session.refresh(episode)
+        for index in range(30):
+            db_session.add(
+                ReportedItem(report_type="true_story", item=f"Story {index}", episode_id=episode.id)
+            )
+        db_session.commit()
+
+        pipeline_module.generate_episode(db_session)
+
+        llm_prompt = mock_llm["calls"][-1]["user"]
+        for index in range(30):
+            assert f"Story {index}" in llm_prompt
+
+    def test_variety_axis_passed_to_llm(self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json):
+        from app.report_types import get_report_type
+
+        today_weekday = datetime.now().weekday()
+        db_session.add(WeeklyReport(day_of_week=today_weekday, report_type="true_story", user_input=""))
+        db_session.commit()
+
+        pipeline_module.generate_episode(db_session)
+
+        llm_prompt = mock_llm["calls"][-1]["user"]
+        axes = get_report_type("true_story").variety_axes
+        assert any(axis in llm_prompt for axis in axes)
+
+    def test_special_report_without_reported_items_falls_back_to_title(
+        self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json
+    ):
+        """A silent model must still leave a record, or the story can recur."""
+
+        today_weekday = datetime.now().weekday()
+        db_session.add(WeeklyReport(day_of_week=today_weekday, report_type="true_story", user_input=""))
+        db_session.commit()
+
+        mock_llm["_state"]["response"] = json.loads(make_episode_json(
+            title="The Halifax Explosion Tree",
+            script="Today, a story about a tree.",
+            reported_items=[],
+            reported_links=[],
+        ))
+
+        pipeline_module.generate_episode(db_session)
+
+        reported = db_session.exec(select(ReportedItem)).all()
+        assert [row.item for row in reported] == ["The Halifax Explosion Tree"]
+
 
 # ---------------------------------------------------------------------------
 # Failure handling
 # ---------------------------------------------------------------------------
+
+
+class TestMarketComment:
+    @staticmethod
+    def _enable_stocks(db_session, settings):
+        settings.stocks_enabled = True
+        db_session.add(WatchlistItem(symbol="AAPL", label="Apple", enabled=True))
+        db_session.add(settings)
+        db_session.commit()
+
+    def test_market_comment_persisted_on_episode(self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json):
+        self._enable_stocks(db_session, settings)
+        mock_llm["_state"]["response"] = json.loads(make_episode_json(
+            market_comment="The watchlist woke up on the right side of the bed.",
+        ))
+
+        episode = pipeline_module.generate_episode(db_session)
+
+        assert episode.market_comment == "The watchlist woke up on the right side of the bed."
+
+    def test_past_market_comments_passed_to_llm(self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json):
+        self._enable_stocks(db_session, settings)
+        db_session.add(
+            Episode(
+                title="Yesterday",
+                status=EpisodeStatus.ready,
+                market_comment="Flat day. Your watchlist is napping.",
+            )
+        )
+        db_session.commit()
+
+        pipeline_module.generate_episode(db_session)
+
+        llm_prompt = mock_llm["calls"][-1]["user"]
+        assert "Flat day. Your watchlist is napping." in llm_prompt
+        assert "MARKET ASIDES ALREADY USED" in llm_prompt
+
+    def test_market_comment_not_stored_without_a_market_segment(self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json):
+        """Stocks are off, so a comment the model invented anyway must not be banked."""
+
+        mock_llm["_state"]["response"] = json.loads(make_episode_json(
+            market_comment="A stray aside about nothing.",
+        ))
+
+        episode = pipeline_module.generate_episode(db_session)
+
+        assert episode.market_summary == ""
+        assert episode.market_comment == ""
 
 
 class TestPipelineFailures:
@@ -406,8 +511,8 @@ class TestPipelineHelpers:
         topics = _excluded_topics(db_session)
         assert set(topics) == {"politics", "war"}
 
-    def test_recent_reported_items_dedupes_case_insensitively(self, db_session):
-        from app.pipeline import _recent_reported_items
+    def test_covered_report_items_dedupes_case_insensitively(self, db_session):
+        from app.pipeline import _covered_report_items
 
         episode = Episode(title="E1")
         db_session.add(episode)
@@ -418,15 +523,30 @@ class TestPipelineHelpers:
             db_session.add(ReportedItem(report_type="books", item=item, episode_id=episode.id))
         db_session.commit()
 
-        recent = _recent_reported_items(db_session, "books", limit=5)
+        covered = _covered_report_items(db_session, "books")
         # Only one casing of the duplicate should survive, plus Dune.
-        assert len(recent) == 2
-        assert "Dune" in recent
-        casefold_items = [r.casefold() for r in recent]
+        assert len(covered) == 2
+        assert "Dune" in covered
+        casefold_items = [r.casefold() for r in covered]
         assert casefold_items.count("project hail mary") == 1
 
-    def test_recent_reported_items_respects_limit(self, db_session):
-        from app.pipeline import _recent_reported_items
+    def test_covered_report_items_returns_full_history(self, db_session):
+        from app.pipeline import _covered_report_items
+
+        episode = Episode(title="E1")
+        db_session.add(episode)
+        db_session.commit()
+        db_session.refresh(episode)
+
+        for i in range(40):
+            db_session.add(ReportedItem(report_type="true_story", item=f"Story {i}", episode_id=episode.id))
+        db_session.commit()
+
+        covered = _covered_report_items(db_session, "true_story")
+        assert len(covered) == 40
+
+    def test_covered_report_items_respects_limit(self, db_session):
+        from app.pipeline import _covered_report_items
 
         episode = Episode(title="E1")
         db_session.add(episode)
@@ -437,8 +557,62 @@ class TestPipelineHelpers:
             db_session.add(ReportedItem(report_type="books", item=f"Book {i}", episode_id=episode.id))
         db_session.commit()
 
-        recent = _recent_reported_items(db_session, "books", limit=3)
-        assert len(recent) == 3
+        covered = _covered_report_items(db_session, "books", limit=3)
+        assert len(covered) == 3
+
+    def test_variety_axis_rotates_with_coverage(self):
+        from app.pipeline import _pick_variety_axis
+        from app.report_types import get_report_type
+
+        axes = get_report_type("true_story").variety_axes
+        picked = [_pick_variety_axis("true_story", count) for count in range(len(axes))]
+        assert len(set(picked)) == len(axes)
+
+    def test_variety_axis_empty_for_report_type_without_axes(self):
+        from app.pipeline import _pick_variety_axis
+
+        assert _pick_variety_axis("books", 0) == ""
+
+    def test_covered_item_count_includes_duplicates(self, db_session):
+        from app.pipeline import _covered_item_count
+
+        episode = Episode(title="E1")
+        db_session.add(episode)
+        db_session.commit()
+        db_session.refresh(episode)
+
+        for item in ["Story A", "story a", "Story B"]:
+            db_session.add(ReportedItem(report_type="true_story", item=item, episode_id=episode.id))
+        db_session.add(ReportedItem(report_type="books", item="Dune", episode_id=episode.id))
+        db_session.commit()
+
+        assert _covered_item_count(db_session, "true_story") == 3
+        assert _covered_item_count(db_session, "books") == 1
+
+    def test_past_market_comments_are_newest_first_and_deduped(self, db_session):
+        from app.pipeline import _past_market_comments
+
+        for title, comment in [
+            ("E1", "Flat day."),
+            ("E2", ""),
+            ("E3", "flat day."),
+            ("E4", "Green across the board."),
+        ]:
+            db_session.add(Episode(title=title, market_comment=comment))
+            db_session.commit()
+
+        comments = _past_market_comments(db_session)
+
+        assert comments == ["Green across the board.", "flat day."]
+
+    def test_past_market_comments_respects_limit(self, db_session):
+        from app.pipeline import _past_market_comments
+
+        for index in range(10):
+            db_session.add(Episode(title=f"E{index}", market_comment=f"Aside {index}."))
+        db_session.commit()
+
+        assert len(_past_market_comments(db_session, limit=4)) == 4
 
     def test_resolve_special_report_returns_none_when_not_configured(self, db_session):
         from app.pipeline import _resolve_special_report

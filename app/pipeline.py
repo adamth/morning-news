@@ -52,6 +52,12 @@ from .tts import (
 
 logger = logging.getLogger(__name__)
 
+COVERED_ITEMS_PROMPT_LIMIT = 750
+"""Cap on the exclusion list sent to the LLM — years of daily episodes, then it forgets."""
+
+MARKET_COMMENTS_PROMPT_LIMIT = 180
+"""Cap on the past market asides sent to the LLM — well over half a year of trading days."""
+
 
 class PipelineError(RuntimeError):
     pass
@@ -310,8 +316,12 @@ def _run(
     timer = LogTimer.start()
     special_report = _resolve_special_report(session, now_local)
     if special_report is not None:
-        recent_items = _recent_reported_items(session, special_report.report_type_id, limit=5)
-        special_report.recent_items = recent_items
+        special_report.covered_items = _covered_report_items(
+            session, special_report.report_type_id
+        )
+        special_report.variety_axis = _pick_variety_axis(
+            special_report.report_type_id, _covered_item_count(session, special_report.report_type_id)
+        )
     if audit is not None and special_report is not None:
         audit.record(
             "pipeline",
@@ -322,8 +332,9 @@ def _run(
                 "label": special_report.label,
                 "user_input_chars": len(special_report.user_input),
                 "user_input": special_report.user_input,
-                "recent_items_count": len(special_report.recent_items),
-                "recent_items": special_report.recent_items,
+                "covered_items_count": len(special_report.covered_items),
+                "covered_items": special_report.covered_items,
+                "variety_axis": special_report.variety_axis,
             },
         )
     content = llm.generate_episode(
@@ -344,6 +355,7 @@ def _run(
         messages=message_inputs,
         articles=article_inputs,
         special_report=special_report,
+        past_market_comments=_past_market_comments(session) if market_text else [],
     )
     if audit is not None:
         audit.record(
@@ -361,6 +373,7 @@ def _run(
                     {"title": link.title, "url": link.url}
                     for link in content.reported_links
                 ],
+                "market_comment": content.market_comment,
                 "script": content.script,
             },
             duration_ms=timer.elapsed_ms(),
@@ -379,7 +392,7 @@ def _run(
         )
 
     # 7b. Remember what this special report covered so future ones don't repeat it.
-    if special_report is not None and (content.reported_items or content.reported_links):
+    if special_report is not None:
         link_by_title: dict[str, str] = {
             link.title.strip().casefold(): link.url.strip()
             for link in content.reported_links
@@ -388,6 +401,9 @@ def _run(
         for link in content.reported_links:
             if link.title.strip() and link.title.strip() not in covered_titles:
                 covered_titles.append(link.title.strip())
+        # A silent model would otherwise leave no trace and be free to repeat itself.
+        if not covered_titles and content.title.strip():
+            covered_titles.append(content.title.strip())
         for title in covered_titles:
             url = link_by_title.get(title.strip().casefold(), "")
             session.add(
@@ -505,6 +521,7 @@ def _run(
     episode.weather_summary = weather_text
     episode.events_summary = "; ".join(events_text)
     episode.market_summary = market_text
+    episode.market_comment = content.market_comment if market_text else ""
     episode.status = EpisodeStatus.ready
     session.add(episode)
     session.commit()
@@ -689,12 +706,18 @@ def _resolve_special_report(session: Session, now_local: datetime) -> llm.Specia
     )
 
 
-def _recent_reported_items(session: Session, report_type_id: str, *, limit: int = 5) -> list[str]:
-    """Return items covered by the last `limit` special reports of the given type.
+def _covered_report_items(
+    session: Session,
+    report_type_id: str,
+    *,
+    limit: int = COVERED_ITEMS_PROMPT_LIMIT,
+) -> list[str]:
+    """Return every item this report type has ever covered, most-recent first.
 
-    Items are ordered most-recent first so the prompt sees the freshest coverage
-    at the top. We deduplicate case-insensitively while preserving order, so a
-    repeat that slipped through doesn't fill the list with noise.
+    The whole history goes into the prompt as a hard exclusion list; `limit` is
+    only a guard against an unbounded prompt after years of daily episodes.
+    Deduplicated case-insensitively so a repeat that slipped through doesn't
+    consume two slots.
     """
 
     if not report_type_id:
@@ -702,7 +725,7 @@ def _recent_reported_items(session: Session, report_type_id: str, *, limit: int 
     rows = session.exec(
         select(ReportedItem)
         .where(ReportedItem.report_type == report_type_id)
-        .order_by(ReportedItem.created_at.desc())
+        .order_by(ReportedItem.created_at.desc(), ReportedItem.id.desc())
     ).all()
     seen: set[str] = set()
     items: list[str] = []
@@ -715,6 +738,57 @@ def _recent_reported_items(session: Session, report_type_id: str, *, limit: int 
         if len(items) >= limit:
             break
     return items
+
+
+def _past_market_comments(
+    session: Session,
+    *,
+    limit: int = MARKET_COMMENTS_PROMPT_LIMIT,
+) -> list[str]:
+    """Market asides from past episodes, most-recent first, deduplicated."""
+
+    rows = session.exec(
+        select(Episode.market_comment)
+        .where(Episode.market_comment != "")
+        .order_by(Episode.created_at.desc(), Episode.id.desc())
+        .limit(limit)
+    ).all()
+    seen: set[str] = set()
+    comments: list[str] = []
+    for comment in rows:
+        text = (comment or "").strip()
+        key = text.casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        comments.append(text)
+    return comments
+
+
+def _covered_item_count(session: Session, report_type_id: str) -> int:
+    """How many items this report type has covered in total, including duplicates."""
+
+    from sqlalchemy import func
+
+    if not report_type_id:
+        return 0
+    return session.exec(
+        select(func.count())
+        .select_from(ReportedItem)
+        .where(ReportedItem.report_type == report_type_id)
+    ).one()
+
+
+def _pick_variety_axis(report_type_id: str, covered_count: int) -> str:
+    """Choose today's rotating angle for a report type that defines any."""
+
+    report_type = get_report_type(report_type_id)
+    if report_type is None or not report_type.variety_axes:
+        return ""
+    axes = report_type.variety_axes
+    # Step through the axes rather than sampling, so a short run of episodes
+    # can't draw the same angle twice.
+    return axes[covered_count % len(axes)]
 
 
 def _summarize_long_articles(
