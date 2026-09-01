@@ -48,7 +48,8 @@ class SpecialReport:
     label: str
     prompt: str
     user_input: str = ""
-    recent_items: list[str] = field(default_factory=list)
+    covered_items: list[str] = field(default_factory=list)
+    variety_axis: str = ""
 
 
 @dataclass
@@ -68,6 +69,7 @@ class EpisodeContent:
     used_message_ids: list[int] = field(default_factory=list)
     reported_items: list[str] = field(default_factory=list)
     reported_links: list[ReportedLink] = field(default_factory=list)
+    market_comment: str = ""
 
 
 EPISODE_CONTENT_JSON_SCHEMA: dict[str, Any] = {
@@ -108,6 +110,14 @@ EPISODE_CONTENT_JSON_SCHEMA: dict[str, Any] = {
                 "entry per item. Empty array for a regular news episode."
             ),
         },
+        "market_comment": {
+            "type": "string",
+            "description": (
+                "The one wry aside about the stock market exactly as it appears in "
+                "the script, verbatim. Empty string when the episode has no market "
+                "segment. This is how the show remembers not to repeat a joke."
+            ),
+        },
         "reported_links": {
             "type": "array",
             "items": {
@@ -139,7 +149,7 @@ EPISODE_CONTENT_JSON_SCHEMA: dict[str, Any] = {
             ),
         },
     },
-    "required": ["title", "description", "script", "used_article_ids", "used_message_ids", "reported_items", "reported_links"],
+    "required": ["title", "description", "script", "used_article_ids", "used_message_ids", "reported_items", "reported_links", "market_comment"],
     "additionalProperties": False,
 }
 
@@ -212,6 +222,7 @@ def _build_generation_prompt(
     messages: list[MessageInput],
     articles: list[ArticleInput],
     special_report: SpecialReport | None = None,
+    past_market_comments: list[str] | None = None,
 ) -> str:
     midpoint_words = int(((target_min + target_max) / 2) * 150)
 
@@ -233,23 +244,39 @@ def _build_generation_prompt(
     excluded_block = ", ".join(excluded_topics) if excluded_topics else "(none)"
     market_block = market_text or "(not included today)"
     reaction_block = market_reaction or "(none)"
+    past_comments_block = (
+        "\n".join(f"- {comment}" for comment in (past_market_comments or []))
+        or "(none yet)"
+    )
 
     if special_report is not None:
         user_input_block = special_report.user_input.strip() or "(none provided)"
-        if special_report.recent_items:
-            recent_block = "\n".join(f"- {item}" for item in special_report.recent_items)
-            recent_clause = (
-                "\n\nRECENTLY COVERED ON PAST SPECIAL REPORTS OF THIS TYPE (do not repeat "
-                "these — pick different titles, stories, or subjects today):\n"
-                f"{recent_block}"
+        if special_report.covered_items:
+            covered_block = "\n".join(f"- {item}" for item in special_report.covered_items)
+            covered_clause = (
+                "\n\nALREADY COVERED — the complete list of everything this show has used on an "
+                f"episode of \"{special_report.label}\". This is a hard exclusion: do not repeat any of "
+                "them, and do not pick a near-variant of one (the same event told from another "
+                "angle, a sequel, or another work by the same author or director counts as a "
+                "repeat). Check your choice against this list before you write, and if the first "
+                "idea that comes to mind is on it, discard that idea and find another:\n"
+                f"{covered_block}"
             )
         else:
-            recent_clause = ""
+            covered_clause = ""
+        if special_report.variety_axis:
+            variety_clause = (
+                "\n\nTODAY'S ANGLE (rotates every episode so the show doesn't circle the same "
+                f"few subjects): {special_report.variety_axis}. Follow it unless the listener's "
+                "guidance above points elsewhere, in which case the listener wins."
+            )
+        else:
+            variety_clause = ""
         special_section = f"""SPECIAL REPORT — {special_report.label.upper()}:
 {special_report.prompt}
 
 LISTENER'S TASTE / GUIDANCE FOR THIS REPORT:
-{user_input_block}{recent_clause}
+{user_input_block}{covered_clause}{variety_clause}
 
 TODAY IS A SPECIAL-REPORT DAY. Lead with the greeting, weather, and (if any) calendar events,
 then deliver the special report as the body of the episode. Treat today's candidate news articles
@@ -257,7 +284,9 @@ as background only — use them only if the report above asks for news (e.g. the
 Skip the regular news roundup unless the report's instructions explicitly call for it.
 
 When you finish, list every title or subject you actually covered in the `reported_items` array
-of your JSON output (one entry per item). This is how the show remembers not to repeat itself.
+of your JSON output (one entry per item), named specifically enough to identify it on its own —
+"The 1904 Kiruna avalanche", not "an avalanche". This array is the only record the show keeps,
+so an item you leave out will come back around and be repeated.
 
 Also fill the `reported_links` array with one {{title, url}} entry per item you covered, so show
 notes can link listeners to each one. Use a canonical, stable public URL: Goodreads book pages
@@ -300,7 +329,9 @@ a comma before the year.
 - Sign-off: one or two short sentences. Warm is fine; a paragraph of reflection is not.
 - Weather and events: state the facts, then a clear handoff to the next section.
 - Market watch: one or two sentences on the aggregate numbers only. Then ONE brief wry reaction \
-inspired by the reaction hint — kitchen-table humor, never investment advice. Do not name tickers.
+— kitchen-table humor, never investment advice. Do not name tickers. The reaction hint below sets \
+the tone, not the words: write a fresh line rather than paraphrasing it, and never reuse a joke, \
+image, or turn of phrase from the past asides listed below.
 - News: open each story with the headline fact; use a brief transition between stories so \
 one doesn't blur into the next. Prefer 3–5 strong stories over many thin ones.
 - Personal messages: introduce briefly ("A quick message from…"), read plainly, move on.
@@ -325,8 +356,15 @@ WEATHER: {weather_text or "(unavailable)"}
 STOCK WATCHLIST (aggregate 24-hour performance — do NOT read individual stocks):
 {market_block}
 
-MARKET REACTION HINT (paraphrase into one short spoken aside; do not read verbatim if stiff):
+MARKET REACTION HINT (tone calibration only — how wry to be, not what to say):
 {reaction_block}
+
+MARKET ASIDES ALREADY USED ON PAST EPISODES (do not repeat or rework any of these — the listener
+hears one of these every day, so today's must be a new observation, not a rephrasing):
+{past_comments_block}
+
+After writing, copy today's market aside verbatim into the `market_comment` field of your JSON
+output, or leave it an empty string if the episode has no market segment.
 
 CALENDAR EVENTS TODAY (an event prefixed with a name, like "Work:", says which calendar \
 it came from — say whose day it belongs to rather than reading the prefix as part of the title):
@@ -363,6 +401,7 @@ def generate_episode(
     messages: list[MessageInput],
     articles: list[ArticleInput],
     special_report: SpecialReport | None = None,
+    past_market_comments: list[str] | None = None,
 ) -> EpisodeContent:
     prompt = _build_generation_prompt(
         podcast_title=podcast_title,
@@ -379,6 +418,7 @@ def generate_episode(
         messages=messages,
         articles=articles,
         special_report=special_report,
+        past_market_comments=past_market_comments,
     )
 
     provider_config = _provider_config(
@@ -457,6 +497,7 @@ def _parse_episode_content(raw: str) -> EpisodeContent:
             if str(value).strip()
         ],
         reported_links=_parse_reported_links(data.get("reported_links")),
+        market_comment=prepare_spoken_text(str(data.get("market_comment") or "")),
     )
 
 
