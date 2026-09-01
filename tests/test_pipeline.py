@@ -18,6 +18,7 @@ from sqlmodel import select
 from app import pipeline as pipeline_module
 from app.credentials import Credentials
 from app.db import (
+    CalendarFeed,
     Episode,
     EpisodeArticle,
     EpisodeLogEntry,
@@ -49,6 +50,32 @@ class TestRegularEpisodeGeneration:
         assert episode.audio_path.endswith(".mp3")
         assert episode.duration_seconds == 60.0
         assert episode.error is None
+
+    def test_labelled_events_from_every_calendar_reach_the_episode(
+        self, db_session, settings, mock_pipeline_env, monkeypatch
+    ):
+        from app.sources.calendar import CalendarEvent
+
+        db_session.add(CalendarFeed(url="https://work.example/cal.ics", label="Work"))
+        db_session.add(CalendarFeed(url="https://home.example/cal.ics", label="Home"))
+        db_session.commit()
+
+        def stub_fetch_all_events(sources, timezone_name="UTC"):
+            return [
+                CalendarEvent(
+                    summary=f"{source.label} thing",
+                    start=datetime(2026, 3, 4, 9, 0, tzinfo=timezone.utc),
+                    all_day=False,
+                    label=source.label,
+                )
+                for source in sources
+            ]
+
+        monkeypatch.setattr(pipeline_module, "fetch_all_events", stub_fetch_all_events)
+
+        episode = pipeline_module.generate_episode(db_session)
+
+        assert episode.events_summary == "Work: Work thing at 9:00 AM; Home: Home thing at 9:00 AM"
 
     def test_persists_show_note_articles(self, db_session, settings, mock_pipeline_env, make_episode_json):
         # The mock LLM returns used_article_ids=[0]; article 0 is "City council".
@@ -340,6 +367,19 @@ class TestPipelineFailures:
 
 
 class TestPipelineHelpers:
+    def test_calendar_sources_skips_disabled_and_blank_feeds(self, db_session):
+        from app.pipeline import _calendar_sources
+
+        db_session.add(CalendarFeed(url="https://work.example/cal.ics", label="Work"))
+        db_session.add(CalendarFeed(url="https://home.example/cal.ics", label="Home", enabled=False))
+        db_session.add(CalendarFeed(url="   ", label="Empty"))
+        db_session.commit()
+
+        sources = _calendar_sources(db_session)
+        assert [(source.label, source.url) for source in sources] == [
+            ("Work", "https://work.example/cal.ics")
+        ]
+
     def test_aired_story_keys_collects_urls_and_titles(self, db_session):
         from app.pipeline import _aired_story_keys
 

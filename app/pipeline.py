@@ -16,6 +16,7 @@ from .audio import assemble_episode, probe_duration, speed_up_narration
 from .config import config
 from .credentials import Credentials, load_credentials
 from .db import (
+    CalendarFeed,
     Episode,
     EpisodeArticle,
     EpisodeStatus,
@@ -33,7 +34,7 @@ from .db import (
 from .news_categories import format_priorities, parse_selected
 from .report_types import REPORT_TYPES, WEEKDAY_LABELS, get_report_type, is_special
 from .sources import news, weather
-from .sources.calendar import CalendarEvent, fetch_events
+from .sources.calendar import CalendarEvent, CalendarSource, fetch_all_events
 from .sources.weather import WeatherSummary
 from .sources import stocks
 from .episode_log import LogTimer, active_log, episode_audit_log
@@ -94,7 +95,9 @@ def generate_episode(session: Session) -> Episode:
                     "locality": settings.locality,
                     "weather_enabled": settings.weather_enabled,
                     "stocks_enabled": settings.stocks_enabled,
-                    "calendar_url_set": bool(settings.calendar_url.strip()),
+                    "calendars": [
+                        source.label or source.url for source in _calendar_sources(session)
+                    ],
                     "llm_provider": settings.llm_provider or "(auto)",
                     "llm_model": settings.llm_model,
                     "target_minutes": [settings.target_minutes_min, settings.target_minutes_max],
@@ -141,6 +144,7 @@ def _run(
 
     # 1. Gather news, weather, stocks, and calendar in parallel.
     sources = _news_sources(session, settings)
+    calendar_sources = _calendar_sources(session)
     audit = active_log()
     if audit is not None:
         audit.record(
@@ -174,6 +178,7 @@ def _run(
         settings=settings,
         credentials=credentials,
         sources=sources,
+        calendar_sources=calendar_sources,
         stock_symbols=stock_symbols,
         aired_urls=aired_urls,
         aired_titles=aired_titles,
@@ -250,9 +255,18 @@ def _run(
         audit.record(
             "calendar",
             "Fetch today's events",
-            status="success" if settings.calendar_url.strip() else "skipped",
-            summary=f"{len(events_text)} event(s) today" if settings.calendar_url.strip() else "No calendar URL",
-            request={"calendar_url": settings.calendar_url or None, "timezone": settings.timezone},
+            status="success" if calendar_sources else "skipped",
+            summary=(
+                f"{len(events_text)} event(s) today across {len(calendar_sources)} calendar(s)"
+                if calendar_sources
+                else "No calendars added"
+            ),
+            request={
+                "calendars": [
+                    {"label": source.label, "url": source.url} for source in calendar_sources
+                ],
+                "timezone": settings.timezone,
+            },
             response={"events": events_text},
         )
 
@@ -515,6 +529,7 @@ def _gather_source_data(
     settings: Settings,
     credentials: Credentials,
     sources: list[news.NewsSource],
+    calendar_sources: list[CalendarSource],
     stock_symbols: list[str],
     aired_urls: set[str] | None = None,
     aired_titles: set[str] | None = None,
@@ -559,8 +574,8 @@ def _gather_source_data(
             return "", ""
         return summary.text, summary.reaction_hint
 
-    def fetch_calendar():
-        return fetch_events(settings.calendar_url, settings.timezone)
+    def fetch_calendar() -> list[CalendarEvent]:
+        return fetch_all_events(calendar_sources, settings.timezone)
 
     with ThreadPoolExecutor(max_workers=4, thread_name_prefix="gather") as executor:
         tasks["news"] = executor.submit(copy_context().run, fetch_news)
@@ -581,6 +596,15 @@ def _gather_source_data(
         market_reaction=market_reaction,
         events=events,
     )
+
+
+def _calendar_sources(session: Session) -> list[CalendarSource]:
+    feeds = session.exec(
+        select(CalendarFeed)
+        .where(CalendarFeed.enabled == True)  # noqa: E712
+        .order_by(CalendarFeed.created_at)
+    ).all()
+    return [CalendarSource(url=feed.url, label=feed.label) for feed in feeds if feed.url.strip()]
 
 
 def _news_sources(session: Session, settings: Settings) -> list[news.NewsSource]:

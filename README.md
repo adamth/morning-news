@@ -11,8 +11,9 @@ server or NAS.
 **How an episode is made:**
 
 1. **Gather** — local news (an auto-generated Google News feed for your area, plus any RSS
-  feeds you add), today's weather (WeatherAPI.com or Open-Meteo), calendar events (CalDAV or a public
-   `.ics` URL), and private messages queued by household members.
+  feeds you add), today's weather (WeatherAPI.com or Open-Meteo), calendar events (as many CalDAV or public
+   `.ics` calendars as you like, each labelled — "Work", "Home" — so the episode says whose
+   day it is), and private messages queued by household members.
 2. **Write** — an LLM filters stories against your preferences ("no war or politics"),
   then writes a natural-sounding script.
 3. **Speak** — ElevenLabs or Speechify synthesizes the narration; ffmpeg adds your
@@ -149,5 +150,5 @@ override keys saved in the web UI (useful for Docker automation).
 | `DATA_DIR`           | —         | Data root (default `/data` in Docker, `./data` locally)                                                   |
 
 
-Everything else — schedule, location, voice, sources, topic exclusions, calendar URL,
+Everything else — schedule, location, voice, sources, topic exclusions, calendars,
 podcast title — is configured in the web UI and stored in SQLite under `/data`.

@@ -78,9 +78,6 @@ class Settings(SQLModel, table=True):
     stocks_enabled: bool = False
     stocks_mature_reactions: bool = False
 
-    # Calendar
-    calendar_url: str = ""
-
     # Content shaping
     preferences_text: str = ""  # legacy free-text; superseded by preferred_categories
     preferred_categories: str = ""  # comma-separated category ids
@@ -137,6 +134,20 @@ class Source(SQLModel, table=True):
     # Low-volume feeds (a few stories a week) whose new articles must always
     # make the episode instead of competing with the daily headline firehose.
     priority: bool = False
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class CalendarFeed(SQLModel, table=True):
+    """A calendar the household subscribes to — a public .ics link or a CalDAV URL.
+
+    `label` names the calendar out loud ("Work", "Sophie's school"), so events from
+    several calendars stay distinguishable in the spoken episode.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    url: str
+    label: str = ""
+    enabled: bool = True
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -300,6 +311,10 @@ def _migrate_schema() -> None:
         "ALTER TABLE settings ADD COLUMN weatherapi_api_key_enc TEXT DEFAULT ''",
         "UPDATE settings SET weather_provider = 'open_meteo' WHERE weather_provider = 'metno'",
         "ALTER TABLE reporteditem ADD COLUMN url TEXT DEFAULT ''",
+        "INSERT INTO calendarfeed (url, label, enabled, created_at) "
+        "SELECT calendar_url, 'Family', 1, CURRENT_TIMESTAMP FROM settings "
+        "WHERE calendar_url IS NOT NULL AND calendar_url != ''",
+        "UPDATE settings SET calendar_url = ''",
     )
     with engine.connect() as connection:
         for statement in migrations:

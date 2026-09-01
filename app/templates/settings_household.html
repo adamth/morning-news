@@ -43,24 +43,58 @@
 
   <hr class="settings-divider" />
 
-  <form method="post" action="/settings/calendar" class="settings-form" id="calendar">
+  <div class="settings-form" id="calendar">
     <div class="settings-group">
       <h2 class="settings-heading">
-        <span class="settings-heading-title">Family calendar</span>
+        <span class="settings-heading-title">Calendars</span>
+        {% if calendars %}<span class="settings-tag settings-tag-count">{{ calendars|length }} calendar{{ 's' if calendars|length != 1 else '' }}</span>{% endif %}
         <span class="settings-tag settings-tag-optional">Optional</span>
       </h2>
-      <p class="field-hint settings-group-lead">Mention today's events from a shared calendar in the episode.</p>
-      <div class="settings-fields">
-        <div class="settings-field">
-          <label for="calendar_url">Calendar link</label>
-          <input type="url" id="calendar_url" name="calendar_url" value="{{ s.calendar_url }}" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" />
-          <div class="field-hint">Paste a subscription link (often ends in <code class="code-inline">.ics</code>). In Google Calendar, open calendar settings → <strong>Integrate calendar</strong> → copy the secret address. In iCloud, use <strong>Share Calendar</strong> → <strong>Public Calendar</strong>.</div>
+      <p class="field-hint settings-group-lead">Mention today's events in the episode. Add as many as you like — a personal one, a work one, the kids' school — and name each one so the episode can say whose day it is.</p>
+      <form method="post" action="/calendars">
+        <div class="inline-form">
+          <div>
+            <label for="calendar_label">Name</label>
+            <input type="text" id="calendar_label" name="label" placeholder="Work" />
+          </div>
+          <div class="inline-form-grow">
+            <label for="calendar_url">Calendar link</label>
+            <input type="url" id="calendar_url" name="url" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" required />
+          </div>
+          <button type="submit" class="btn btn-sm">Add calendar</button>
         </div>
-      </div>
-      <div class="form-actions">
-        <button type="submit">Save calendar</button>
-      </div>
+        <div class="field-hint">Paste a subscription link (often ends in <code class="code-inline">.ics</code>). In Google Calendar, open calendar settings → <strong>Integrate calendar</strong> → copy the secret address. In iCloud, use <strong>Share Calendar</strong> → <strong>Public Calendar</strong>.</div>
+      </form>
+      {% if calendars %}
+      <ul>
+        {% for calendar in calendars %}
+        <li class="list-row">
+          <div>
+            <div>
+              {{ calendar.label or 'Unnamed calendar' }}
+              {% if not calendar.enabled %}<span class="settings-tag settings-tag-count">Off</span>{% endif %}
+            </div>
+            <div class="list-meta">{{ calendar.url }}</div>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            <form method="post" action="/calendars/{{ calendar.id }}/toggle">
+              <button class="btn btn-sm" type="submit">{{ 'Turn on' if not calendar.enabled else 'Turn off' }}<span class="sr-only"> {{ calendar.label or calendar.url }}</span></button>
+            </form>
+            <form
+              method="post"
+              action="/calendars/{{ calendar.id }}/delete"
+              data-confirm="Remove the calendar {{ calendar.label or calendar.url }}? You'll need its link to add it back."
+            >
+              <button class="btn btn-danger btn-sm" type="submit">Remove<span class="sr-only"> {{ calendar.label or calendar.url }}</span></button>
+            </form>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-sm text-muted">No calendars yet — add one and the episode will run through today's events.</p>
+      {% endif %}
     </div>
-  </form>
+  </div>
 </section>
 {% endblock %}
