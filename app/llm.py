@@ -67,9 +67,11 @@ class EpisodeContent:
     script: str
     used_article_ids: list[int] = field(default_factory=list)
     used_message_ids: list[int] = field(default_factory=list)
+    used_event_ids: list[int] = field(default_factory=list)
     reported_items: list[str] = field(default_factory=list)
     reported_links: list[ReportedLink] = field(default_factory=list)
     market_comment: str = ""
+    weather_comment: str = ""
 
 
 EPISODE_CONTENT_JSON_SCHEMA: dict[str, Any] = {
@@ -101,6 +103,16 @@ EPISODE_CONTENT_JSON_SCHEMA: dict[str, Any] = {
             "items": {"type": "integer"},
             "description": "Personal message ids that were read aloud in the episode",
         },
+        "used_event_ids": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": (
+                "Calendar event ids you mentioned in the episode. Every event in "
+                "the list you were given must appear here — the show treats a "
+                "missing event as a defect and will ask you to write the episode "
+                "again."
+            ),
+        },
         "reported_items": {
             "type": "array",
             "items": {"type": "string"},
@@ -116,6 +128,15 @@ EPISODE_CONTENT_JSON_SCHEMA: dict[str, Any] = {
                 "The one wry aside about the stock market exactly as it appears in "
                 "the script, verbatim. Empty string when the episode has no market "
                 "segment. This is how the show remembers not to repeat a joke."
+            ),
+        },
+        "weather_comment": {
+            "type": "string",
+            "description": (
+                "The one remark about what today's weather is like to live in, "
+                "exactly as it appears in the script, verbatim -- the observation, "
+                "not the forecast figures. Empty string when the episode has no "
+                "weather. This is how the show remembers not to repeat itself."
             ),
         },
         "reported_links": {
@@ -149,7 +170,7 @@ EPISODE_CONTENT_JSON_SCHEMA: dict[str, Any] = {
             ),
         },
     },
-    "required": ["title", "description", "script", "used_article_ids", "used_message_ids", "reported_items", "reported_links", "market_comment"],
+    "required": ["title", "description", "script", "used_article_ids", "used_message_ids", "used_event_ids", "reported_items", "reported_links", "market_comment", "weather_comment"],
     "additionalProperties": False,
 }
 
@@ -223,6 +244,9 @@ def _build_generation_prompt(
     articles: list[ArticleInput],
     special_report: SpecialReport | None = None,
     past_market_comments: list[str] | None = None,
+    past_weather_comments: list[str] | None = None,
+    weather_angle: str = "",
+    missed_events: list[str] | None = None,
 ) -> str:
     midpoint_words = int(((target_min + target_max) / 2) * 150)
 
@@ -240,7 +264,19 @@ def _build_generation_prompt(
     ) or "(no articles available)"
 
     message_block = "\n".join(f"[message {item.id}] {item.text}" for item in messages) or "(none)"
-    events_block = "\n".join(f"- {event}" for event in events) or "(none today)"
+    events_block = (
+        "\n".join(f"[event {index}] {event}" for index, event in enumerate(events))
+        or "(none today)"
+    )
+    if missed_events:
+        missed_list = "\n".join(f"- {event}" for event in missed_events)
+        missed_events_block = (
+            "\n\nEVENTS YOUR LAST DRAFT LEFT OUT — that episode was rejected for omitting them. "
+            "They are not optional and not too small to say out loud. Work every one into the "
+            f"calendar section by name and time:\n{missed_list}"
+        )
+    else:
+        missed_events_block = ""
     excluded_block = ", ".join(excluded_topics) if excluded_topics else "(none)"
     market_block = market_text or "(not included today)"
     reaction_block = market_reaction or "(none)"
@@ -248,6 +284,11 @@ def _build_generation_prompt(
         "\n".join(f"- {comment}" for comment in (past_market_comments or []))
         or "(none yet)"
     )
+    past_weather_block = (
+        "\n".join(f"- {comment}" for comment in (past_weather_comments or []))
+        or "(none yet)"
+    )
+    weather_angle_block = weather_angle or "(no particular angle — pick something worth saying)"
 
     if special_report is not None:
         user_input_block = special_report.user_input.strip() or "(none provided)"
@@ -327,7 +368,13 @@ sections or stories is fine — it helps pacing.
 When stating the date, use the exact format given above (e.g. July 2, 2026) — always include \
 a comma before the year.
 - Sign-off: one or two short sentences. Warm is fine; a paragraph of reflection is not.
-- Weather and events: state the facts, then a clear handoff to the next section.
+- Weather: give the forecast plainly, then ONE short remark on what the day is actually like \
+to live in. Today's weather angle below names the aspect to remark on; it is a subject, not a \
+script. Never reuse an observation, image, or turn of phrase from the past weather remarks \
+listed below, and steer well clear of the stock lines this job invites: "don't forget your \
+umbrella", "a great day to get outside", "layer up". Then hand off.
+- Calendar events: name every single one with its time, however short or minor it looks. A \
+fifteen-minute meeting matters as much as an all-day one. State the facts, then hand off.
 - Market watch: one or two sentences on the aggregate numbers only. Then ONE brief wry reaction \
 — kitchen-table humor, never investment advice. Do not name tickers. The reaction hint below sets \
 the tone, not the words: write a fresh line rather than paraphrasing it, and never reuse a joke, \
@@ -340,7 +387,7 @@ STRUCTURE (adapt naturally, omit empty sections):
 1. Brief greeting with day/date.
 2. Today's weather, if provided.
 3. Stock watchlist summary, if provided — OVERALL performance only; never list individual tickers or per-stock percentages.
-4. Calendar events for today, if any.
+4. Every calendar event for today, if any — each one named individually.
 5. The most relevant local/regional news stories.
 6. Any personal messages, if any.
 7. One-line sign-off.
@@ -352,6 +399,18 @@ hard rules; a strong story outside these categories is still worth including):
 EXCLUDED TOPICS (never include stories primarily about these): {excluded_block}
 
 WEATHER: {weather_text or "(unavailable)"}
+
+TODAY'S WEATHER ANGLE (rotates every episode so the remark isn't the same one daily — a subject
+to remark on, not wording to copy; ignore it if today's forecast makes it nonsense):
+{weather_angle_block}
+
+WEATHER REMARKS ALREADY USED ON PAST EPISODES (do not repeat or rework any of these — the
+listener hears one of these every single day, so today's must be a new observation, not a
+rephrasing):
+{past_weather_block}
+
+After writing, copy today's weather remark verbatim into the `weather_comment` field of your
+JSON output, or leave it an empty string if the episode has no weather.
 
 STOCK WATCHLIST (aggregate 24-hour performance — do NOT read individual stocks):
 {market_block}
@@ -366,9 +425,14 @@ hears one of these every day, so today's must be a new observation, not a rephra
 After writing, copy today's market aside verbatim into the `market_comment` field of your JSON
 output, or leave it an empty string if the episode has no market segment.
 
-CALENDAR EVENTS TODAY (an event prefixed with a name, like "Work:", says which calendar \
-it came from — say whose day it belongs to rather than reading the prefix as part of the title):
-{events_block}
+CALENDAR EVENTS TODAY — every one of these MUST be mentioned in the episode. This is a list to
+read out, not to summarise: name each event individually with its time, in the order given. Do
+not skip a short meeting, an early one, or anything that looks too small to be worth saying; do
+not merge two events into one mention; and never substitute a phrase like "a few meetings this
+morning" for naming them. An event prefixed with a name, like "Work:", says which calendar it
+came from — say whose day it belongs to rather than reading the prefix as part of the title.
+List the id of every event you mention in `used_event_ids`.
+{events_block}{missed_events_block}
 
 PERSONAL MESSAGES TO INCLUDE (read each one that you use, then list its id in used_message_ids):
 {message_block}
@@ -402,6 +466,9 @@ def generate_episode(
     articles: list[ArticleInput],
     special_report: SpecialReport | None = None,
     past_market_comments: list[str] | None = None,
+    past_weather_comments: list[str] | None = None,
+    weather_angle: str = "",
+    missed_events: list[str] | None = None,
 ) -> EpisodeContent:
     prompt = _build_generation_prompt(
         podcast_title=podcast_title,
@@ -419,6 +486,9 @@ def generate_episode(
         articles=articles,
         special_report=special_report,
         past_market_comments=past_market_comments,
+        past_weather_comments=past_weather_comments,
+        weather_angle=weather_angle,
+        missed_events=missed_events,
     )
 
     provider_config = _provider_config(
@@ -491,6 +561,7 @@ def _parse_episode_content(raw: str) -> EpisodeContent:
         script=script,
         used_article_ids=[int(value) for value in data.get("used_article_ids", []) if _is_int(value)],
         used_message_ids=[int(value) for value in data.get("used_message_ids", []) if _is_int(value)],
+        used_event_ids=[int(value) for value in data.get("used_event_ids", []) if _is_int(value)],
         reported_items=[
             str(value).strip()
             for value in data.get("reported_items", [])
@@ -498,6 +569,7 @@ def _parse_episode_content(raw: str) -> EpisodeContent:
         ],
         reported_links=_parse_reported_links(data.get("reported_links")),
         market_comment=prepare_spoken_text(str(data.get("market_comment") or "")),
+        weather_comment=prepare_spoken_text(str(data.get("weather_comment") or "")),
     )
 
 

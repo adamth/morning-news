@@ -299,9 +299,11 @@ def mock_llm(monkeypatch):
             "script": "Good morning. Here is your briefing. The weather is sunny today. In local news, the city council approved a new park. That is all for now.",
             "used_article_ids": [0],
             "used_message_ids": [],
+            "used_event_ids": [],
             "reported_items": [],
             "reported_links": [],
             "market_comment": "",
+            "weather_comment": "",
         }
     }
     calls: list[dict[str, Any]] = []
@@ -347,9 +349,11 @@ def make_episode_json():
             "script": "Hello, this is your morning briefing. The weather is fine. That is all.",
             "used_article_ids": [],
             "used_message_ids": [],
+            "used_event_ids": [],
             "reported_items": [],
             "reported_links": [],
             "market_comment": "",
+            "weather_comment": "",
         }
         base.update(overrides)
         return json.dumps(base)

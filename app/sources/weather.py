@@ -18,6 +18,43 @@ logger = logging.getLogger(__name__)
 
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 
+WEATHER_ANGLES: tuple[str, ...] = (
+    "what the day asks you to wear or carry on the way out",
+    "whether washing would dry on the line today",
+    "how it compares with yesterday, better or worse",
+    "the best hour to be outside, and the worst",
+    "what the light will be like: bright, flat, grey, glaring",
+    "how it will feel rather than what it measures: muggy, biting, close, fresh",
+    "what it means for anything growing in the garden or in pots",
+    "whether it's a day for windows open or windows shut",
+    "the one thing about today that would catch someone out",
+    "how the evening will differ from the morning",
+    "what the wind will be doing, and whether it matters",
+    "how the day would treat a walk, a bike ride, or a long drive",
+    "what to expect underfoot: dry, wet, slick, frosty",
+    "whether this is ordinary for the time of year or a departure from it",
+    "a small practical permission or warning: bring it in, leave it out, skip the coat",
+    "what the sky will actually look like overhead",
+    "how the temperature moves across the day rather than where it peaks",
+    "whether there's anything here worth planning around",
+    "how the weather will sit behind the ordinary business of the day",
+    "what today would be good for, if anything",
+)
+"""Framings the pipeline steps through, one per episode.
+
+Every forecast is the same shape, so a model asked for a remark about the
+weather reaches for the same handful of lines: umbrellas, layers, a great day
+to get outside. Excluding past remarks alone still converges. A different
+aspect to remark on each day pushes it somewhere new.
+"""
+
+
+def pick_weather_angle(index: int) -> str:
+    """Today's weather framing, stepped through rather than sampled so a short
+    run of episodes can't draw the same angle twice."""
+
+    return WEATHER_ANGLES[index % len(WEATHER_ANGLES)]
+
 
 @dataclass
 class GeocodeResult:

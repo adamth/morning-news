@@ -35,7 +35,7 @@ from .news_categories import format_priorities, parse_selected
 from .report_types import REPORT_TYPES, WEEKDAY_LABELS, get_report_type, is_special
 from .sources import news, weather
 from .sources.calendar import CalendarEvent, CalendarSource, fetch_all_events
-from .sources.weather import WeatherSummary
+from .sources.weather import WeatherSummary, pick_weather_angle
 from .sources import stocks
 from .episode_log import LogTimer, active_log, episode_audit_log
 from .health import refresh_health_report
@@ -57,6 +57,9 @@ COVERED_ITEMS_PROMPT_LIMIT = 750
 
 MARKET_COMMENTS_PROMPT_LIMIT = 180
 """Cap on the past market asides sent to the LLM — well over half a year of trading days."""
+
+WEATHER_COMMENTS_PROMPT_LIMIT = 180
+"""Cap on the past weather remarks sent to the LLM — about half a year of episodes."""
 
 
 class PipelineError(RuntimeError):
@@ -337,7 +340,8 @@ def _run(
                 "variety_axis": special_report.variety_axis,
             },
         )
-    content = llm.generate_episode(
+    content = _generate_episode_covering_every_event(
+        events_text,
         credentials=credentials,
         llm_provider=settings.llm_provider,
         llm_model=settings.llm_model,
@@ -351,11 +355,14 @@ def _run(
         weather_text=weather_text,
         market_text=market_text,
         market_reaction=market_reaction,
-        events=events_text,
         messages=message_inputs,
         articles=article_inputs,
         special_report=special_report,
         past_market_comments=_past_market_comments(session) if market_text else [],
+        past_weather_comments=_past_weather_comments(session) if weather_text else [],
+        weather_angle=(
+            pick_weather_angle(_weather_comment_count(session)) if weather_text else ""
+        ),
     )
     if audit is not None:
         audit.record(
@@ -368,12 +375,14 @@ def _run(
                 "script_chars": len(content.script),
                 "used_article_ids": content.used_article_ids,
                 "used_message_ids": content.used_message_ids,
+                "used_event_ids": content.used_event_ids,
                 "reported_items": content.reported_items,
                 "reported_links": [
                     {"title": link.title, "url": link.url}
                     for link in content.reported_links
                 ],
                 "market_comment": content.market_comment,
+                "weather_comment": content.weather_comment,
                 "script": content.script,
             },
             duration_ms=timer.elapsed_ms(),
@@ -522,6 +531,7 @@ def _run(
     episode.events_summary = "; ".join(events_text)
     episode.market_summary = market_text
     episode.market_comment = content.market_comment if market_text else ""
+    episode.weather_comment = content.weather_comment if weather_text else ""
     episode.status = EpisodeStatus.ready
     session.add(episode)
     session.commit()
@@ -763,6 +773,88 @@ def _past_market_comments(
         seen.add(key)
         comments.append(text)
     return comments
+
+
+def _missed_events(events: list[str], used_event_ids: list[int]) -> list[str]:
+    """Events the model didn't report mentioning, by their position in the list."""
+
+    mentioned = set(used_event_ids)
+    return [event for index, event in enumerate(events) if index not in mentioned]
+
+
+def _generate_episode_covering_every_event(
+    events: list[str],
+    **kwargs,
+) -> llm.EpisodeContent:
+    """Write the episode, and write it again if it dropped a calendar event.
+
+    A household plans its day around the calendar section, so an omitted meeting
+    is worse than a slow pipeline: one extra call buys a second chance at the
+    only part of the episode the listener can't get anywhere else.
+    """
+
+    content = llm.generate_episode(events=events, **kwargs)
+    missed = _missed_events(events, content.used_event_ids)
+    if not missed:
+        return content
+
+    logger.warning("Episode draft omitted %d calendar event(s); regenerating", len(missed))
+    audit = active_log()
+    if audit is not None:
+        audit.record(
+            "llm",
+            "Retry script for omitted calendar events",
+            status="error",
+            summary=f"{len(missed)} of {len(events)} event(s) missing from the first draft",
+            request={"missed_events": missed},
+        )
+    retry = llm.generate_episode(events=events, missed_events=missed, **kwargs)
+    still_missed = _missed_events(events, retry.used_event_ids)
+    if len(still_missed) >= len(missed):
+        logger.warning("Retry did not improve calendar coverage; keeping the first draft")
+        return content
+    if still_missed:
+        logger.warning(
+            "Episode still omits calendar event(s) after a retry: %s", "; ".join(still_missed)
+        )
+    return retry
+
+
+def _past_weather_comments(
+    session: Session,
+    *,
+    limit: int = WEATHER_COMMENTS_PROMPT_LIMIT,
+) -> list[str]:
+    """Weather remarks from past episodes, most-recent first, deduplicated."""
+
+    rows = session.exec(
+        select(Episode.weather_comment)
+        .where(Episode.weather_comment != "")
+        .order_by(Episode.created_at.desc(), Episode.id.desc())
+        .limit(limit)
+    ).all()
+    seen: set[str] = set()
+    comments: list[str] = []
+    for comment in rows:
+        text = (comment or "").strip()
+        key = text.casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        comments.append(text)
+    return comments
+
+
+def _weather_comment_count(session: Session) -> int:
+    """How many episodes have banked a weather remark, used to step the angle."""
+
+    from sqlalchemy import func
+
+    return session.exec(
+        select(func.count())
+        .select_from(Episode)
+        .where(Episode.weather_comment != "")
+    ).one()
 
 
 def _covered_item_count(session: Session, report_type_id: str) -> int:

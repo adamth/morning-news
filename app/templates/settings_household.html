@@ -21,7 +21,7 @@
       <p class="field-hint settings-group-lead">Each person has their own login so they can queue private messages — read aloud once in the next episode, invisible to everyone else until it airs. Show settings apply to everyone.</p>
       <ul>
         {% for u in users %}
-        <li class="list-row"><div>{{ u.username }}</div><div class="list-meta">Added {{ u.created_at.strftime('%b %d, %Y') }}</div></li>
+        <li class="list-row"><div>{{ u.username }}</div><div class="list-meta">Added {{ (u.created_at | in_timezone(household_timezone)).strftime('%b %d, %Y') }}</div></li>
         {% endfor %}
       </ul>
       {% if users|length == 1 %}

@@ -448,7 +448,7 @@
       </h2>
       <p class="field-hint settings-group-lead">
         Whether Morning News can reach everything it needs to build your episode.
-        Checks run weekly on Sunday mornings, again when an episode fails to generate, and on demand below{% if report.checked_at %} — last run {{ report.checked_at | health_checked_at }}{% endif %}.
+        Checks run weekly on Sunday mornings, again when an episode fails to generate, and on demand below{% if report.checked_at %} — last run {{ report.checked_at | health_checked_at(household_timezone) }}{% endif %}.
       </p>
 
       {% if not report.checked_at %}

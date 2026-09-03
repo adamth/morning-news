@@ -52,6 +52,19 @@ class TestParseEpisodeContent:
         content = _parse_episode_content(raw)
         assert content.market_comment == "The watchlist is napping."
 
+    def test_parses_weather_comment(self):
+        raw = json.dumps({
+            "title": "T",
+            "script": "Hello.",
+            "weather_comment": "  Cold enough to see your breath by the bins.  ",
+        })
+        content = _parse_episode_content(raw)
+        assert content.weather_comment == "Cold enough to see your breath by the bins."
+
+    def test_weather_comment_defaults_to_empty(self):
+        raw = json.dumps({"title": "T", "script": "Hello."})
+        assert _parse_episode_content(raw).weather_comment == ""
+
     def test_market_comment_defaults_to_empty(self):
         raw = json.dumps({"title": "Test Episode", "script": "Hello world."})
         assert _parse_episode_content(raw).market_comment == ""
@@ -234,6 +247,70 @@ class TestBuildGenerationPrompt:
         prompt = _build_generation_prompt(**self._base_kwargs())
 
         assert "(none yet)" in prompt
+
+    def test_calendar_prompt_numbers_every_event_and_demands_all_of_them(self):
+        kwargs = self._base_kwargs()
+        kwargs["events"] = ["Work: Standup at 9:00 AM", "Dentist at 2:30 PM"]
+
+        prompt = _build_generation_prompt(**kwargs)
+
+        assert "[event 0] Work: Standup at 9:00 AM" in prompt
+        assert "[event 1] Dentist at 2:30 PM" in prompt
+        assert "MUST be mentioned" in prompt
+        assert "used_event_ids" in prompt
+        assert "not to summarise" in prompt
+
+    def test_calendar_prompt_names_events_a_previous_draft_dropped(self):
+        kwargs = self._base_kwargs()
+        kwargs["events"] = ["Work: Standup at 9:00 AM", "Dentist at 2:30 PM"]
+        kwargs["missed_events"] = ["Work: Standup at 9:00 AM"]
+
+        prompt = _build_generation_prompt(**kwargs)
+
+        assert "EVENTS YOUR LAST DRAFT LEFT OUT" in prompt
+        assert prompt.count("Work: Standup at 9:00 AM") == 2
+
+    def test_calendar_prompt_omits_the_retry_block_on_a_first_draft(self):
+        prompt = _build_generation_prompt(**self._base_kwargs())
+
+        assert "EVENTS YOUR LAST DRAFT LEFT OUT" not in prompt
+
+    def test_parses_used_event_ids(self):
+        raw = json.dumps({
+            "title": "T",
+            "script": "Hello.",
+            "used_event_ids": [0, 2, "x"],
+        })
+        assert _parse_episode_content(raw).used_event_ids == [0, 2]
+
+    def test_weather_prompt_lists_past_remarks(self):
+        kwargs = self._base_kwargs()
+        kwargs["past_weather_comments"] = [
+            "Warm enough to leave the windows open all day.",
+            "The kind of grey that never quite commits to rain.",
+        ]
+
+        prompt = _build_generation_prompt(**kwargs)
+
+        assert "WEATHER REMARKS ALREADY USED" in prompt
+        assert "leave the windows open all day" in prompt
+        assert "never quite commits to rain" in prompt
+        assert "do not repeat or rework" in prompt.lower()
+
+    def test_weather_prompt_includes_todays_angle(self):
+        kwargs = self._base_kwargs()
+        kwargs["weather_angle"] = "whether washing would dry on the line today"
+
+        prompt = _build_generation_prompt(**kwargs)
+
+        assert "TODAY'S WEATHER ANGLE" in prompt
+        assert "whether washing would dry on the line today" in prompt
+
+    def test_weather_prompt_without_an_angle(self):
+        prompt = _build_generation_prompt(**self._base_kwargs())
+
+        assert "TODAY'S WEATHER ANGLE" in prompt
+        assert "no particular angle" in prompt
 
     def test_special_report_prompt_includes_variety_axis(self):
         report = SpecialReport(

@@ -227,6 +227,8 @@ class Episode(SQLModel, table=True):
     market_summary: str = ""
     market_comment: str = ""
     """The wry market aside as it was said on air, so later episodes don't reuse it."""
+    weather_comment: str = ""
+    """The weather remark as it was said on air, so later episodes don't reuse it."""
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -318,6 +320,7 @@ def _migrate_schema() -> None:
         "WHERE calendar_url IS NOT NULL AND calendar_url != ''",
         "UPDATE settings SET calendar_url = ''",
         "ALTER TABLE episode ADD COLUMN market_comment TEXT DEFAULT ''",
+        "ALTER TABLE episode ADD COLUMN weather_comment TEXT DEFAULT ''",
     )
     with engine.connect() as connection:
         for statement in migrations:

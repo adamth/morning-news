@@ -9,6 +9,7 @@ handling.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from datetime import datetime, timezone
 
@@ -388,6 +389,149 @@ class TestMarketComment:
         assert episode.market_comment == ""
 
 
+class TestCalendarCoverage:
+    @staticmethod
+    def _with_events(monkeypatch, *summaries):
+        from app.sources.calendar import CalendarEvent
+
+        def stub_fetch_all_events(sources, timezone_name="UTC"):
+            return [
+                CalendarEvent(
+                    summary=summary,
+                    start=datetime(2026, 3, 4, 9, 0, tzinfo=timezone.utc),
+                    all_day=False,
+                )
+                for summary in summaries
+            ]
+
+        monkeypatch.setattr(pipeline_module, "fetch_all_events", stub_fetch_all_events)
+
+    def test_no_retry_when_every_event_is_mentioned(self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json, monkeypatch):
+        self._with_events(monkeypatch, "Standup")
+        mock_llm["_state"]["response"] = json.loads(make_episode_json(used_event_ids=[0]))
+
+        pipeline_module.generate_episode(db_session)
+
+        script_calls = [call for call in mock_llm["calls"] if "CALENDAR EVENTS TODAY" in call["user"]]
+        assert len(script_calls) == 1
+
+    def test_dropped_event_triggers_a_retry_naming_it(self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json, monkeypatch):
+        self._with_events(monkeypatch, "Standup", "Dentist")
+        mock_llm["_state"]["response"] = json.loads(make_episode_json(used_event_ids=[1]))
+
+        pipeline_module.generate_episode(db_session)
+
+        script_calls = [call for call in mock_llm["calls"] if "CALENDAR EVENTS TODAY" in call["user"]]
+        assert len(script_calls) == 2
+        retry_prompt = script_calls[-1]["user"]
+        assert "EVENTS YOUR LAST DRAFT LEFT OUT" in retry_prompt
+        assert "Standup at 9:00 AM" in retry_prompt
+        assert "Dentist" not in retry_prompt.split("EVENTS YOUR LAST DRAFT LEFT OUT")[1]
+
+    def test_retries_at_most_once(self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json, monkeypatch):
+        """The stub never reports an event, so coverage can never be satisfied."""
+
+        self._with_events(monkeypatch, "Standup")
+        mock_llm["_state"]["response"] = json.loads(make_episode_json(used_event_ids=[]))
+
+        episode = pipeline_module.generate_episode(db_session)
+
+        script_calls = [call for call in mock_llm["calls"] if "CALENDAR EVENTS TODAY" in call["user"]]
+        assert len(script_calls) == 2
+        assert episode.status == EpisodeStatus.ready
+
+    def test_better_retry_replaces_the_first_draft(self, db_session, settings, mock_pipeline_env, mock_llm, monkeypatch, make_episode_json):
+        from app import llm as llm_module
+
+        self._with_events(monkeypatch, "Standup", "Dentist")
+        drafts = [
+            make_episode_json(title="Missed one", used_event_ids=[0]),
+            make_episode_json(title="Covered both", used_event_ids=[0, 1]),
+        ]
+
+        def stub_chat_completion(*, user, **kwargs):
+            mock_llm["calls"].append({"user": user})
+            if "CALENDAR EVENTS TODAY" not in user:
+                return drafts[-1]
+            return drafts.pop(0) if len(drafts) > 1 else drafts[0]
+
+        monkeypatch.setattr(llm_module, "_chat_completion", stub_chat_completion)
+
+        episode = pipeline_module.generate_episode(db_session)
+
+        assert episode.title == "Covered both"
+
+    def test_missed_events_are_found_by_position(self):
+        from app.pipeline import _missed_events
+
+        events = ["Standup at 9:00 AM", "Dentist at 2:30 PM", "Pickup at 3:30 PM"]
+
+        assert _missed_events(events, [0, 2]) == ["Dentist at 2:30 PM"]
+        assert _missed_events(events, [0, 1, 2]) == []
+        assert _missed_events(events, []) == events
+
+
+class TestWeatherComments:
+    def test_weather_comment_persisted_on_episode(self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json):
+        mock_llm["_state"]["response"] = json.loads(make_episode_json(
+            weather_comment="Warm enough to leave the windows open all day.",
+        ))
+
+        episode = pipeline_module.generate_episode(db_session)
+
+        assert episode.weather_comment == "Warm enough to leave the windows open all day."
+
+    def test_past_weather_comments_passed_to_llm(self, db_session, settings, mock_pipeline_env, mock_llm):
+        db_session.add(
+            Episode(
+                title="Yesterday",
+                status=EpisodeStatus.ready,
+                weather_comment="The kind of grey that never quite commits to rain.",
+            )
+        )
+        db_session.commit()
+
+        pipeline_module.generate_episode(db_session)
+
+        llm_prompt = mock_llm["calls"][-1]["user"]
+        assert "The kind of grey that never quite commits to rain." in llm_prompt
+        assert "WEATHER REMARKS ALREADY USED" in llm_prompt
+
+    def test_weather_angle_advances_with_each_banked_remark(self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json):
+        from app.sources.weather import WEATHER_ANGLES
+
+        mock_llm["_state"]["response"] = json.loads(make_episode_json(
+            weather_comment="A remark worth banking.",
+        ))
+        pipeline_module.generate_episode(db_session)
+        assert WEATHER_ANGLES[0] in mock_llm["calls"][-1]["user"]
+
+        mock_llm["_state"]["response"] = json.loads(make_episode_json(
+            weather_comment="A different remark.",
+        ))
+        pipeline_module.generate_episode(db_session)
+        assert WEATHER_ANGLES[1] in mock_llm["calls"][-1]["user"]
+
+    def test_weather_comment_not_stored_without_weather(self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json, monkeypatch):
+        """No forecast today, so a remark the model invented anyway must not be banked."""
+
+        gather = pipeline_module._gather_source_data
+
+        def gather_without_weather(**kwargs):
+            result = gather(**kwargs)
+            return dataclasses.replace(result, weather_text="", weather_summary=None)
+
+        monkeypatch.setattr(pipeline_module, "_gather_source_data", gather_without_weather)
+        mock_llm["_state"]["response"] = json.loads(make_episode_json(
+            weather_comment="A stray remark about nothing.",
+        ))
+
+        episode = pipeline_module.generate_episode(db_session)
+
+        assert episode.weather_summary == ""
+        assert episode.weather_comment == ""
+
+
 class TestPipelineFailures:
     def test_llm_error_marks_episode_failed(self, db_session, settings, mock_pipeline_env, monkeypatch, make_episode_json):
         from app import llm as llm_module
@@ -613,6 +757,39 @@ class TestPipelineHelpers:
         db_session.commit()
 
         assert len(_past_market_comments(db_session, limit=4)) == 4
+
+    def test_past_weather_comments_are_newest_first_and_deduped(self, db_session):
+        from app.pipeline import _past_weather_comments
+
+        for title, comment in [
+            ("E1", "Grey all day."),
+            ("E2", ""),
+            ("E3", "grey all day."),
+            ("E4", "Windows open weather."),
+        ]:
+            db_session.add(Episode(title=title, weather_comment=comment))
+            db_session.commit()
+
+        comments = _past_weather_comments(db_session)
+
+        assert comments == ["Windows open weather.", "grey all day."]
+
+    def test_past_weather_comments_respects_limit(self, db_session):
+        from app.pipeline import _past_weather_comments
+
+        for index in range(10):
+            db_session.add(Episode(title=f"E{index}", weather_comment=f"Remark {index}."))
+        db_session.commit()
+
+        assert len(_past_weather_comments(db_session, limit=4)) == 4
+
+    def test_weather_angle_steps_through_every_framing(self):
+        from app.sources.weather import WEATHER_ANGLES, pick_weather_angle
+
+        drawn = [pick_weather_angle(index) for index in range(len(WEATHER_ANGLES))]
+
+        assert len(set(drawn)) == len(WEATHER_ANGLES)
+        assert pick_weather_angle(len(WEATHER_ANGLES)) == WEATHER_ANGLES[0]
 
     def test_resolve_special_report_returns_none_when_not_configured(self, db_session):
         from app.pipeline import _resolve_special_report

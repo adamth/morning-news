@@ -46,8 +46,8 @@ REPORT_TYPES: tuple[ReportType, ...] = (
         label="Book recommendations",
         hint="Suggest two or three books the household might enjoy next.",
         prompt=(
-            "Today's episode is BOOK DAY. After the weather (and a brief calendar "
-            "reminder if there is one), skip the news entirely and spend the rest "
+            "Today's episode is BOOK DAY. After the weather and today's calendar "
+            "events, if there are any, skip the news entirely and spend the rest "
             "of the episode recommending two or three books the household might "
             "enjoy next. Use the listener's tastes below to pick titles across "
             "genres they already like; don't be afraid to recommend less well "
@@ -68,8 +68,8 @@ REPORT_TYPES: tuple[ReportType, ...] = (
         label="Film & TV recommendations",
         hint="Suggest two or three films or shows to watch this week.",
         prompt=(
-            "Today's episode is FILM DAY. After the weather (and a brief calendar "
-            "reminder if there is one), skip the news entirely and spend the rest "
+            "Today's episode is FILM DAY. After the weather and today's calendar "
+            "events, if there are any, skip the news entirely and spend the rest "
             "of the episode recommending two or three films or shows the "
             "household might enjoy this week. Use the listener's tastes below to "
             "pick titles across genres they already like; when a recommendation "
@@ -89,8 +89,8 @@ REPORT_TYPES: tuple[ReportType, ...] = (
         label="A true story",
         hint="Tell one fascinating true story in full.",
         prompt=(
-            "Today's episode is TRUE STORY DAY. After the weather (and a brief "
-            "calendar reminder if there is one), skip the news entirely and tell "
+            "Today's episode is TRUE STORY DAY. After the weather and today's "
+            "calendar events, if there are any, skip the news entirely and tell "
             "one compelling, self-contained true story. Pick something genuinely "
             "interesting and a little surprising — a moment from history, science, "
             "exploration, or ordinary people doing something remarkable — and "
@@ -137,8 +137,8 @@ REPORT_TYPES: tuple[ReportType, ...] = (
         label="News deep dive",
         hint="Pick one big story and explain it properly.",
         prompt=(
-            "Today's episode is DEEP DIVE DAY. After the weather (and a brief "
-            "calendar reminder if there is one), pick ONE news story from today's "
+            "Today's episode is DEEP DIVE DAY. After the weather and today's "
+            "calendar events, if there are any, pick ONE news story from today's "
             "candidates and explain it properly: the background, what's new today, "
             "and why it matters — in three or four short paragraphs of plain "
             "spoken English. Cover at most one or two other very brief headlines "
@@ -156,8 +156,8 @@ REPORT_TYPES: tuple[ReportType, ...] = (
         label="A quiet reflection",
         hint="A short, gentle piece on a theme — no news.",
         prompt=(
-            "Today's episode is REFLECTION DAY. After the weather (and a brief "
-            "calendar reminder if there is one), skip the news entirely and offer "
+            "Today's episode is REFLECTION DAY. After the weather and today's "
+            "calendar events, if there are any, skip the news entirely and offer "
             "a short, gentle spoken reflection on a single theme — the changing "
             "season, a small everyday pleasure, a question worth sitting with. "
             "Keep it under two minutes, warm and unhurried, never preachy. End "

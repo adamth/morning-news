@@ -9,6 +9,7 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
+import recurring_ical_events
 from icalendar import Calendar
 
 from ..episode_log import LogTimer, active_log
@@ -31,9 +32,13 @@ class CalendarEvent:
     start: datetime | date
     all_day: bool
     label: str = ""
+    spans_today: bool = False
+    """Underway today but started on an earlier day, so today has no start time."""
 
     def describe(self, timezone: ZoneInfo) -> str:
-        if self.all_day:
+        if self.spans_today:
+            described = f"{self.summary} (continues today)"
+        elif self.all_day:
             described = f"{self.summary} (all day)"
         elif isinstance(self.start, datetime):
             start = self.start
@@ -48,7 +53,7 @@ class CalendarEvent:
 def _sort_key(event: CalendarEvent, timezone: ZoneInfo) -> tuple[int, float, str]:
     """All-day events first, then chronological, then by title for a stable order."""
 
-    if event.all_day or not isinstance(event.start, datetime):
+    if event.all_day or event.spans_today or not isinstance(event.start, datetime):
         return (0, 0.0, event.summary)
     start = event.start
     local = start.astimezone(timezone) if start.tzinfo else start.replace(tzinfo=timezone)
@@ -63,29 +68,62 @@ def _coerce_start(value) -> tuple[datetime | date, bool]:
     return value, False
 
 
+def _local_start_date(start: datetime | date, timezone: ZoneInfo) -> date | None:
+    """The local calendar date an event starts on."""
+
+    if isinstance(start, datetime):
+        local = start.astimezone(timezone) if start.tzinfo else start.replace(tzinfo=timezone)
+        return local.date()
+    if isinstance(start, date):
+        return start
+    return None
+
+
+def _occurrences_today(calendar: Calendar, today: date, timezone: ZoneInfo) -> list:
+    """Every event occurrence overlapping today, with recurrences expanded.
+
+    A recurring event's VEVENT carries only its first DTSTART, so a daily
+    standup added months ago never lands on today unless the rule is expanded.
+    """
+
+    day_start = datetime.combine(today, time.min, tzinfo=timezone)
+    day_end = day_start + timedelta(days=1)
+    try:
+        return list(recurring_ical_events.of(calendar).between(day_start, day_end))
+    except Exception as error:  # one malformed rule must not cost the whole day
+        logger.warning("Could not expand recurring events: %s", error)
+        return [
+            component
+            for component in calendar.walk("VEVENT")
+            if (dtstart := component.get("dtstart")) is not None
+            and _local_start_date(_coerce_start(dtstart.dt)[0], timezone) == today
+        ]
+
+
 def _events_today(ical_text: str, today: date, timezone: ZoneInfo) -> list[CalendarEvent]:
-    events: list[CalendarEvent] = []
     try:
         calendar = Calendar.from_ical(ical_text)
     except ValueError as error:
         logger.warning("Could not parse calendar payload: %s", error)
-        return events
+        return []
 
-    for component in calendar.walk("VEVENT"):
+    events: list[CalendarEvent] = []
+    for component in _occurrences_today(calendar, today, timezone):
         dtstart = component.get("dtstart")
         if dtstart is None:
             continue
         start, all_day = _coerce_start(dtstart.dt)
-        if all_day and isinstance(start, date) and not isinstance(start, datetime):
-            event_date = start
-        elif isinstance(start, datetime):
-            local_start = start.astimezone(timezone) if start.tzinfo else start.replace(tzinfo=timezone)
-            event_date = local_start.date()
-        else:
+        start_date = _local_start_date(start, timezone)
+        if start_date is None:
             continue
-        if event_date == today:
-            summary = str(component.get("summary", "(untitled event)"))
-            events.append(CalendarEvent(summary=summary, start=start, all_day=all_day))
+        events.append(
+            CalendarEvent(
+                summary=str(component.get("summary", "(untitled event)")),
+                start=start,
+                all_day=all_day,
+                spans_today=start_date != today,
+            )
+        )
 
     events.sort(key=lambda event: _sort_key(event, timezone))
     return events
