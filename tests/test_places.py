@@ -317,3 +317,102 @@ class TestPlaceScopedFallbackScore:
             home_places=RANGES,
         )
         assert selected.local_score == 0
+
+
+class TestInterestTopics:
+    """Interest stories are slow-day filler: capped, balanced across topics,
+    and never able to displace a local story."""
+
+    def _sources(self, topics):
+        return news.build_interest_sources(topics, hl="en-AU", gl="AU", ceid="AU:en")
+
+    def test_one_feed_per_topic_so_each_can_be_capped(self):
+        sources = self._sources(["video games", "artificial intelligence"])
+        assert [s.name for s in sources] == [
+            "Interest (video games)",
+            "Interest (artificial intelligence)",
+        ]
+        assert all(s.interest and s.is_google_news for s in sources)
+
+    def test_no_topics_yields_no_sources(self):
+        assert self._sources([]) == []
+
+    def test_interest_stories_rank_below_every_local_story(self, monkeypatch):
+        local = [_article(f"Monbulk story {n}", source_name="Star Mail") for n in range(3)]
+        filler = [_article("New Melbourne game studio opens", source_name="Interest (games)")]
+        for article in filler:
+            article.interest = True
+
+        def fake_collect(sources, _max):
+            if not sources:
+                return []
+            if sources[0].interest:
+                return list(filler)
+            if sources[0].is_google_news:
+                return []
+            return list(local)
+
+        monkeypatch.setattr(news, "_collect_from_sources", fake_collect)
+        selected = news.gather_articles(
+            [
+                news.NewsSource(url="https://paper.test/feed/", name="Star Mail"),
+                news.NewsSource(url="https://news.google.com/rss/search?q=x", is_google_news=True),
+                news.NewsSource(
+                    url="https://news.google.com/rss/search?q=games",
+                    name="Interest (games)",
+                    is_google_news=True,
+                    interest=True,
+                ),
+            ],
+            extract=False,
+            home_places=RANGES,
+        )
+        assert selected[-1].title == "New Melbourne game studio opens"
+        assert selected[-1].interest is True
+
+    def test_interest_stories_are_not_scored_as_failed_local_stories(self, monkeypatch):
+        filler = _article("AI model released", source_name="Interest (ai)")
+        filler.interest = True
+        monkeypatch.setattr(
+            news, "_collect_from_sources", lambda sources, _m: [filler] if sources else []
+        )
+        (selected,) = news.gather_articles(
+            [
+                news.NewsSource(
+                    url="https://news.google.com/rss/search?q=ai",
+                    name="Interest (ai)",
+                    is_google_news=True,
+                    interest=True,
+                )
+            ],
+            extract=False,
+            home_places=RANGES,
+        )
+        assert selected.interest is True
+
+
+class TestBalanceBySource:
+    """A query for AI returns ~100 stories in two days; one for the Australian
+    games industry returns two a week. Filler must not become all-AI."""
+
+    def test_round_robins_so_a_chatty_topic_cannot_fill_the_pool(self):
+        articles = [_article(f"AI {n}", source_name="Interest (ai)") for n in range(10)]
+        articles += [_article("Games story", source_name="Interest (games)")]
+        balanced = news._balance_by_source(articles, 2)
+        assert [a.source_name for a in balanced[:2]] == [
+            "Interest (ai)",
+            "Interest (games)",
+        ]
+
+    def test_caps_each_source(self):
+        articles = [_article(f"AI {n}", source_name="Interest (ai)") for n in range(10)]
+        assert len(news._balance_by_source(articles, 2)) == 2
+
+    def test_keeps_a_sparse_source_that_has_fewer_than_the_cap(self):
+        articles = [
+            _article("AI one", source_name="Interest (ai)"),
+            _article("AI two", source_name="Interest (ai)"),
+            _article("Games story", source_name="Interest (games)"),
+        ]
+        titles = {a.title for a in news._balance_by_source(articles, 2)}
+        assert "Games story" in titles

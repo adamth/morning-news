@@ -47,6 +47,11 @@ _PRIORITY_MAX_AGE_HOURS = 48
 # A feed-embedded body at least this long is treated as the full article,
 # so no web extraction is attempted for it.
 _MIN_FEED_BODY_CHARS = 400
+# Interest topics are slow-day filler, never the point of the show. Cap each
+# topic separately so a high-volume one (AI) cannot squeeze out a quiet one
+# (the local games industry), then cap the pool they share.
+_INTEREST_PER_TOPIC = 2
+_INTEREST_POOL = 4
 _extraction_semaphore = threading.Semaphore(_MAX_EXTRACTION_WORKERS)
 
 
@@ -67,6 +72,8 @@ class Article:
     # towns by name — weak locality evidence in its own right, and the only
     # evidence available for a Google News entry before extraction.
     place_scoped: bool = False
+    # From an interest-topic feed, so it may only fill a thin news day.
+    interest: bool = False
 
     @property
     def content(self) -> str:
@@ -84,6 +91,8 @@ class NewsSource:
     priority: bool = False
     # Built from a home-place search rather than a broad region query.
     place_scoped: bool = False
+    # Built from an interest topic: eligible only as slow-news-day filler.
+    interest: bool = False
 
 
 def build_google_news_url(locality: str, hl: str, gl: str, ceid: str) -> str | None:
@@ -125,6 +134,31 @@ def build_home_place_queries(
             query += f' "{region}"'
         queries.append(f"{query} when:2d")
     return queries
+
+
+def build_interest_sources(
+    interest_topics: list[str],
+    *,
+    hl: str,
+    gl: str,
+    ceid: str,
+) -> list[NewsSource]:
+    """Build one Google News search per interest topic.
+
+    Each topic gets its own feed so the per-topic cap in `gather_articles` can
+    keep them balanced. A three-day window suits the cadence: niche topics
+    publish a couple of stories a week, and stale filler is worse than none.
+    """
+
+    return [
+        NewsSource(
+            url=build_google_news_search_url(f"{topic} when:3d", hl, gl, ceid),
+            name=f"Interest ({topic})",
+            is_google_news=True,
+            interest=True,
+        )
+        for topic in interest_topics
+    ]
 
 
 def build_local_news_sources(
@@ -448,6 +482,7 @@ def _parse_feed(source: NewsSource, max_entries: int) -> list[Article]:
                 priority=source.priority,
                 published=_entry_published(entry),
                 place_scoped=source.place_scoped,
+                interest=source.interest,
             )
         )
     return articles
@@ -493,6 +528,25 @@ def _title_key(title: str) -> str:
     """
 
     return re.sub(r"\s+-\s+[^-]{1,60}$", "", title).strip().lower()
+
+
+def _balance_by_source(articles: list[Article], per_source: int) -> list[Article]:
+    """Keep at most `per_source` articles from each feed, in round-robin order.
+
+    "artificial intelligence" returns around 100 stories in two days while a
+    query for the Australian games industry returns two in a week, so taking
+    the pool in feed order would make every filler story an AI story.
+    """
+
+    by_source: dict[str, list[Article]] = {}
+    for article in articles:
+        by_source.setdefault(article.source_name, []).append(article)
+    balanced: list[Article] = []
+    for rank in range(per_source):
+        for group in by_source.values():
+            if rank < len(group):
+                balanced.append(group[rank])
+    return balanced
 
 
 def _dedupe(articles: list[Article]) -> list[Article]:
@@ -602,14 +656,26 @@ def gather_articles(
         return article.url in exclude_urls or _title_key(article.title) in exclude_titles
 
     user_sources = [source for source in sources if not source.is_google_news]
-    auto_sources = [source for source in sources if source.is_google_news]
+    auto_sources = [
+        source for source in sources if source.is_google_news and not source.interest
+    ]
+    interest_sources = [source for source in sources if source.interest]
 
     user_articles = _dedupe(_collect_from_sources(user_sources, max_entries_per_feed))
     auto_articles = _dedupe(_collect_from_sources(auto_sources, max_entries_per_feed))
+    interest_articles = _dedupe(
+        _collect_from_sources(interest_sources, _INTEREST_PER_TOPIC)
+    )
 
-    repeats_skipped = sum(is_repeat(a) for a in user_articles + auto_articles)
+    repeats_skipped = sum(
+        is_repeat(a) for a in user_articles + auto_articles + interest_articles
+    )
     user_articles = [article for article in user_articles if not is_repeat(article)]
     auto_articles = [article for article in auto_articles if not is_repeat(article)]
+    interest_articles = [a for a in interest_articles if not is_repeat(a)]
+    interest_articles = _balance_by_source(interest_articles, _INTEREST_PER_TOPIC)[
+        :_INTEREST_POOL
+    ]
 
     def annotate(article: Article) -> None:
         """Record which home places a story mentions, and how strongly."""
@@ -682,6 +748,7 @@ def gather_articles(
     take(local_auto, max_articles)
     take(user_articles, max_articles)
     take(distant_auto, max_articles)
+    take(interest_articles, max_articles + len(interest_articles))
 
     if repeats_skipped:
         logger.info("Skipped %d article(s) already aired in past episodes", repeats_skipped)

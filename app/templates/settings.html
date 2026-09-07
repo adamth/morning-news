@@ -80,6 +80,21 @@
           </div>
         </div>
 
+        <div class="settings-field">
+          <label for="interest_topics">Slow-day interests</label>
+          <textarea
+            id="interest_topics"
+            name="interest_topics"
+            rows="2"
+            placeholder="Australian video game industry, software engineering, artificial intelligence, film and TV"
+          >{{ s.interest_topics }}</textarea>
+          <div class="field-hint">
+            Subjects you'd enjoy hearing about occasionally, comma separated. These only
+            appear when there isn't enough local news to fill the episode, at most one per
+            show, and never as the lead story. Leave empty to hear local news only.
+          </div>
+        </div>
+
         <label class="checkbox-inline">
           <input type="checkbox" name="weather_enabled" value="1" {{ 'checked' if s.weather_enabled else '' }}>
           Include today's weather in the episode

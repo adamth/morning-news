@@ -33,6 +33,7 @@ class ArticleInput:
     source_name: str = ""
     priority: bool = False
     local_places: list[str] = field(default_factory=list)
+    interest: bool = False
 
 
 @dataclass
@@ -260,6 +261,8 @@ def _build_generation_prompt(
             tag = f" (feed: {item.source_name})"
         else:
             tag = ""
+        if item.interest:
+            return tag + " [INTEREST: slow-day filler only]"
         if home_places:
             if item.local_places:
                 tag += f" [LOCAL: mentions {', '.join(item.local_places)}]"
@@ -307,6 +310,19 @@ Lilydale…") so the listener can place it.
 episode is better than one padded with places the listener doesn't care about."""
     else:
         geography_block = ""
+
+    if any(item.interest for item in articles):
+        interest_block = """INTEREST TOPICS (filler — only for a thin news day):
+Some candidates are tagged [INTEREST: slow-day filler only]. These are subjects the
+listener enjoys hearing about occasionally; they are not local news and not the point
+of the show.
+- Use them ONLY when you have fewer than three worthwhile local stories.
+- Include at most ONE, and never lead the news section with it.
+- Introduce it as the aside it is ("away from the hills…", "in tech news…"), so it
+never reads as something happening locally.
+- When local news is plentiful, ignore them completely."""
+    else:
+        interest_block = ""
     reaction_block = market_reaction or "(none)"
     past_comments_block = (
         "\n".join(f"- {comment}" for comment in (past_market_comments or []))
@@ -421,6 +437,8 @@ STRUCTURE (adapt naturally, omit empty sections):
 7. One-line sign-off.
 
 {geography_block}
+
+{interest_block}
 
 STORY PRIORITIES (soft guidance — prefer these when picking articles, but they are NOT \
 hard rules; a strong story outside these categories is still worth including):

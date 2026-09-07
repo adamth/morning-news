@@ -246,6 +246,39 @@ class TestBuildGenerationPrompt:
         assert "priority feed: Star Mail" in prompt
         assert "[LOCAL: mentions Sassafras]" in prompt
 
+    def test_interest_block_is_omitted_when_no_filler_is_offered(self):
+        prompt = _build_generation_prompt(**self._base_kwargs())
+        assert "INTEREST TOPICS" not in prompt
+
+    def test_interest_block_appears_and_constrains_usage(self):
+        kwargs = self._base_kwargs()
+        kwargs["articles"] = [
+            ArticleInput(id=0, title="Local story", publisher="Star Mail", content="Body."),
+            ArticleInput(
+                id=1,
+                title="Melbourne studio ships a game",
+                publisher="ABC",
+                content="Body.",
+                interest=True,
+            ),
+        ]
+        prompt = _build_generation_prompt(**kwargs)
+        assert "INTEREST TOPICS" in prompt
+        assert "[INTEREST: slow-day filler only]" in prompt
+        assert "at most ONE" in prompt
+
+    def test_interest_tag_takes_precedence_over_the_not_local_tag(self):
+        # An interest story is not a local story that failed a test, and must
+        # not be presented to the model as one.
+        kwargs = self._base_kwargs()
+        kwargs["home_places"] = ["Sassafras"]
+        kwargs["articles"] = [
+            ArticleInput(id=0, title="AI model released", publisher="ABC", content="B.", interest=True),
+        ]
+        prompt = _build_generation_prompt(**kwargs)
+        assert "[INTEREST: slow-day filler only]" in prompt
+        assert "NOT LOCAL: mentions no home place" not in prompt
+
     def test_regular_episode_prompt_builds_without_error(self):
         prompt = _build_generation_prompt(**self._base_kwargs())
         assert "Morning News" in prompt

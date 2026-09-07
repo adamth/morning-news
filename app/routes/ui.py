@@ -648,9 +648,11 @@ def save_settings(
     weather_enabled: str | None = Form(None),
     weather_provider: str = Form("open_meteo"),
     home_places: str = Form(""),
+    interest_topics: str = Form(""),
 ):
     settings = get_settings(session)
     settings.home_places = serialize_places(parse_places(home_places))
+    settings.interest_topics = serialize_places(parse_places(interest_topics))
 
     hour, minute = _parse_time(schedule_time)
     settings.schedule_hour = hour
