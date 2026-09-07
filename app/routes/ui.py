@@ -36,6 +36,7 @@ from ..episodes import EpisodeDeleteError, delete_episode
 from ..episode_log import category_label
 from ..health import get_health_report
 from ..news_categories import NEWS_CATEGORIES, parse_selected, serialize_selected
+from ..places import parse_places, serialize_places
 from ..report_types import REPORT_TYPES, WEEKDAY_LABELS
 from ..llm_models import list_chat_models
 from ..llm_providers import (
@@ -646,8 +647,10 @@ def save_settings(
     news_ceid: str = Form("US:en"),
     weather_enabled: str | None = Form(None),
     weather_provider: str = Form("open_meteo"),
+    home_places: str = Form(""),
 ):
     settings = get_settings(session)
+    settings.home_places = serialize_places(parse_places(home_places))
 
     hour, minute = _parse_time(schedule_time)
     settings.schedule_hour = hour

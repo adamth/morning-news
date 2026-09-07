@@ -23,6 +23,7 @@ import httpx
 import trafilatura
 
 from ..credentials import Credentials
+from ..places import match_places, score_text
 from ..episode_log import LogTimer, active_log
 from ..http_retry import httpx_request_with_retry
 
@@ -59,6 +60,13 @@ class Article:
     source_name: str = ""
     priority: bool = False
     published: datetime | None = None  # UTC, from the feed entry when available
+    # Locality annotations, filled in by gather_articles when home places are set.
+    local_score: int = 0
+    local_places: list[str] = field(default_factory=list)
+    # True when the feed that found this story searched the listener's own
+    # towns by name — weak locality evidence in its own right, and the only
+    # evidence available for a Google News entry before extraction.
+    place_scoped: bool = False
 
     @property
     def content(self) -> str:
@@ -74,6 +82,8 @@ class NewsSource:
     is_google_news: bool = False
     # Priority feeds publish rarely; every fresh story they carry is selected.
     priority: bool = False
+    # Built from a home-place search rather than a broad region query.
+    place_scoped: bool = False
 
 
 def build_google_news_url(locality: str, hl: str, gl: str, ceid: str) -> str | None:
@@ -95,6 +105,28 @@ def build_google_news_search_url(query: str, hl: str, gl: str, ceid: str) -> str
     )
 
 
+def build_home_place_queries(
+    home_places: list[str], region: str = "", *, max_per_query: int = 6
+) -> list[str]:
+    """Build quoted OR-cluster Google News queries for the listener's towns.
+
+    Quoting matters: bare town names match homonyms worldwide (a query for
+    Sassafras returns Arkansas vineyards and Louisiana pet adoptions), and
+    adding the region name keeps results in the right state. Clusters are
+    chunked so a long town list does not produce an unwieldy query string.
+    """
+
+    queries: list[str] = []
+    for index in range(0, len(home_places), max_per_query):
+        chunk = home_places[index : index + max_per_query]
+        cluster = " OR ".join(f'"{place}"' for place in chunk)
+        query = f"({cluster})"
+        if region:
+            query += f' "{region}"'
+        queries.append(f"{query} when:2d")
+    return queries
+
+
 def build_local_news_sources(
     *,
     locality: str,
@@ -103,16 +135,23 @@ def build_local_news_sources(
     hl: str,
     gl: str,
     ceid: str,
+    home_places: list[str] | None = None,
 ) -> list[NewsSource]:
     """Build Google News feeds for a location, with regional search fallbacks.
 
     Small towns often have no dedicated geo feed; broader search queries cover them.
+
+    When `home_places` is set we search those towns by name instead of falling
+    back to a bare region query. A region query is a firehose — "Victoria
+    when:1d" returns around 100 state-wide stories a day, which drowns out both
+    the listener's own feeds and the handful of stories about their area.
     """
 
     sources: list[NewsSource] = []
     place = locality.strip()
     region = admin1.strip()
     country_name = country.strip()
+    places = home_places or []
 
     if place:
         geo_url = build_google_news_url(place, hl, gl, ceid)
@@ -120,6 +159,18 @@ def build_local_news_sources(
             sources.append(
                 NewsSource(url=geo_url, name=f"Local ({place})", is_google_news=True)
             )
+
+    if places:
+        for query in build_home_place_queries(places, region):
+            sources.append(
+                NewsSource(
+                    url=build_google_news_search_url(query, hl, gl, ceid),
+                    name="Local (home places)",
+                    is_google_news=True,
+                    place_scoped=True,
+                )
+            )
+        return sources
 
     if region and region.lower() != place.lower():
         sources.append(
@@ -396,6 +447,7 @@ def _parse_feed(source: NewsSource, max_entries: int) -> list[Article]:
                 source_name=source.name,
                 priority=source.priority,
                 published=_entry_published(entry),
+                place_scoped=source.place_scoped,
             )
         )
     return articles
@@ -432,12 +484,23 @@ def _clean_summary(summary: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _title_key(title: str) -> str:
+    """Normalized title for dedupe.
+
+    Google News appends " - Publisher" to every headline, so the same story
+    reaching us from a search feed and from the publisher's own feed would
+    otherwise be aired twice.
+    """
+
+    return re.sub(r"\s+-\s+[^-]{1,60}$", "", title).strip().lower()
+
+
 def _dedupe(articles: list[Article]) -> list[Article]:
     seen_urls: set[str] = set()
     seen_titles: set[str] = set()
     unique: list[Article] = []
     for article in articles:
-        title_key = article.title.strip().lower()
+        title_key = _title_key(article.title)
         if article.url in seen_urls or title_key in seen_titles:
             continue
         seen_urls.add(article.url)
@@ -512,6 +575,7 @@ def gather_articles(
     zyte_api_key: str | None = None,
     exclude_urls: set[str] | None = None,
     exclude_titles: set[str] | None = None,
+    home_places: list[str] | None = None,
 ) -> list[Article]:
     """Collect, dedupe, and (optionally) extract bodies for candidate articles.
 
@@ -521,16 +585,21 @@ def gather_articles(
     ahead of everything else. Articles matching
     `exclude_urls`/`exclude_titles` (stories aired in past episodes) are
     dropped so a story is never repeated across episodes.
+
+    When `home_places` is set, every candidate is scored by how strongly it
+    mentions the listener's own towns. Scores rank each bucket, and Google News
+    stories with no local signal at all are demoted to backfill — they may
+    still air on a quiet day, but they can no longer crowd out the local feeds.
     """
 
     exclude_urls = exclude_urls or set()
-    exclude_titles = exclude_titles or set()
+    # Normalize both sides: a story aired from the paper's own feed reaches us
+    # from Google News with " - Publisher" appended, and vice versa.
+    exclude_titles = {_title_key(title) for title in (exclude_titles or set())}
+    places = home_places or []
 
     def is_repeat(article: Article) -> bool:
-        return (
-            article.url in exclude_urls
-            or article.title.strip().lower() in exclude_titles
-        )
+        return article.url in exclude_urls or _title_key(article.title) in exclude_titles
 
     user_sources = [source for source in sources if not source.is_google_news]
     auto_sources = [source for source in sources if source.is_google_news]
@@ -541,6 +610,31 @@ def gather_articles(
     repeats_skipped = sum(is_repeat(a) for a in user_articles + auto_articles)
     user_articles = [article for article in user_articles if not is_repeat(article)]
     auto_articles = [article for article in auto_articles if not is_repeat(article)]
+
+    def annotate(article: Article) -> None:
+        """Record which home places a story mentions, and how strongly."""
+
+        article.local_places = match_places(
+            f"{article.title}\n{article.content}", places
+        )
+        score = score_text(title=article.title, body=article.content, places=places)
+        if not score and article.place_scoped:
+            # A Google News snippet often omits the town its own query matched,
+            # so trust the query: enough to rank above broad regional news,
+            # not enough to outrank a story that names a home place outright.
+            score = 1
+        article.local_score = score
+
+    def rank(articles: list[Article]) -> list[Article]:
+        """Most-local first; feed order breaks ties (so recency is preserved)."""
+
+        return sorted(articles, key=lambda article: -article.local_score)
+
+    if places:
+        for article in user_articles + auto_articles:
+            annotate(article)
+        user_articles = rank(user_articles)
+        auto_articles = rank(auto_articles)
 
     # Only force-include priority stories that are actually fresh; older or
     # undated entries from priority feeds compete like normal feed articles.
@@ -566,19 +660,28 @@ def gather_articles(
         for article in candidates:
             if len(selected) >= limit:
                 break
-            title_key = article.title.strip().lower()
+            title_key = _title_key(article.title)
             if article.url in seen_urls or title_key in seen_titles:
                 continue
             selected.append(article)
             seen_urls.add(article.url)
             seen_titles.add(title_key)
 
+    # Google News stories that mention no home place are backfill only, so a
+    # broad regional feed cannot squeeze out the listener's own local feeds.
+    if places:
+        local_auto = [article for article in auto_articles if article.local_score > 0]
+        distant_auto = [article for article in auto_articles if article.local_score == 0]
+    else:
+        local_auto, distant_auto = auto_articles, []
+
     # Priority feeds publish rarely — take every fresh story, even past the cap.
     take(priority_articles, max(max_articles, len(priority_articles)))
     user_quota = max(8, max_articles // 2)
     take(user_articles, min(max_articles, len(selected) + user_quota))
-    take(auto_articles, max_articles)
+    take(local_auto, max_articles)
     take(user_articles, max_articles)
+    take(distant_auto, max_articles)
 
     if repeats_skipped:
         logger.info("Skipped %d article(s) already aired in past episodes", repeats_skipped)
@@ -597,6 +700,31 @@ def gather_articles(
         sum(1 for article in selected if article.source_name),
         sum(1 for article in selected if _is_google_news(article.url)),
     )
+
+    if places:
+        local_count = sum(1 for article in selected if article.local_score > 0)
+        audit = active_log()
+        if audit is not None:
+            audit.record(
+                "news",
+                "Rank by local relevance",
+                summary=(
+                    f"{local_count}/{len(selected)} candidate(s) mention a home place; "
+                    f"{len(distant_auto)} distant Google News story(ies) demoted to backfill"
+                ),
+                request={"home_places": places},
+                response={
+                    "candidates": [
+                        {
+                            "title": article.title,
+                            "score": article.local_score,
+                            "places": article.local_places,
+                            "source": article.source_name or article.publisher,
+                        }
+                        for article in selected
+                    ]
+                },
+            )
 
     if extract:
         def extract_article(article: Article) -> None:

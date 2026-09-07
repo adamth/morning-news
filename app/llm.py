@@ -32,6 +32,7 @@ class ArticleInput:
     content: str
     source_name: str = ""
     priority: bool = False
+    local_places: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -242,20 +243,29 @@ def _build_generation_prompt(
     events: list[str],
     messages: list[MessageInput],
     articles: list[ArticleInput],
+    home_places: list[str] | None = None,
     special_report: SpecialReport | None = None,
     past_market_comments: list[str] | None = None,
     past_weather_comments: list[str] | None = None,
     weather_angle: str = "",
     missed_events: list[str] | None = None,
 ) -> str:
+    home_places = home_places or []
     midpoint_words = int(((target_min + target_max) / 2) * 150)
 
     def _feed_tag(item: ArticleInput) -> str:
         if item.priority:
-            return f" (priority feed: {item.source_name or item.publisher})"
-        if item.source_name:
-            return f" (feed: {item.source_name})"
-        return ""
+            tag = f" (priority feed: {item.source_name or item.publisher})"
+        elif item.source_name:
+            tag = f" (feed: {item.source_name})"
+        else:
+            tag = ""
+        if home_places:
+            if item.local_places:
+                tag += f" [LOCAL: mentions {', '.join(item.local_places)}]"
+            else:
+                tag += " [NOT LOCAL: mentions no home place]"
+        return tag
 
     article_block = "\n\n".join(
         f"[article {item.id}]{_feed_tag(item)} "
@@ -279,6 +289,24 @@ def _build_generation_prompt(
         missed_events_block = ""
     excluded_block = ", ".join(excluded_topics) if excluded_topics else "(none)"
     market_block = market_text or "(not included today)"
+
+    if home_places:
+        places_line = ", ".join(home_places)
+        geography_block = f"""GEOGRAPHY (this decides what counts as local — apply it strictly):
+The listener's home places are, closest first: {places_line}.
+- A story is LOCAL only if it concerns one of those places. Each candidate below is \
+tagged [LOCAL: ...] or [NOT LOCAL: ...] — trust those tags over your own sense of the area.
+- Lead the news with LOCAL stories. A small item about the listener's own town (a hall \
+reopening, a road closed, a school fete) beats a bigger story about somewhere they never go.
+- A [NOT LOCAL] story earns a place only if it genuinely reaches the listener: state or \
+national news that affects them, or an event close enough to attend. Neighbouring-town \
+council minutes, school notices, sports results, and crime reports do NOT qualify — skip them.
+- Never imply a [NOT LOCAL] story happened locally. Name the town plainly ("over in \
+Lilydale…") so the listener can place it.
+- If there are only one or two decent local stories, run a short news section. A brief \
+episode is better than one padded with places the listener doesn't care about."""
+    else:
+        geography_block = ""
     reaction_block = market_reaction or "(none)"
     past_comments_block = (
         "\n".join(f"- {comment}" for comment in (past_market_comments or []))
@@ -392,6 +420,8 @@ STRUCTURE (adapt naturally, omit empty sections):
 6. Any personal messages, if any.
 7. One-line sign-off.
 
+{geography_block}
+
 STORY PRIORITIES (soft guidance — prefer these when picking articles, but they are NOT \
 hard rules; a strong story outside these categories is still worth including):
 {priorities_text}
@@ -441,6 +471,8 @@ CANDIDATE NEWS ARTICLES (pick the strongest stories; use priorities above as a t
 - Articles marked with "feed:" come from RSS feeds the listener added — include at least one when relevant.
 - Articles marked with "priority feed:" are must-include: cover EVERY one of them, at least briefly. \
 They come from rarely-updated feeds the listener never wants to miss.
+- Spread the news section across different sources. Never take every story from one feed or \
+publisher while other feeds offered usable stories — the listener chose those feeds on purpose.
 {article_block}
 
 {special_section}"""
@@ -454,6 +486,7 @@ def generate_episode(
     podcast_title: str,
     date_text: str,
     locality: str,
+    home_places: list[str] | None = None,
     target_min: float,
     target_max: float,
     priorities_text: str,
@@ -474,6 +507,7 @@ def generate_episode(
         podcast_title=podcast_title,
         date_text=date_text,
         locality=locality,
+        home_places=home_places or [],
         target_min=target_min,
         target_max=target_max,
         priorities_text=priorities_text,

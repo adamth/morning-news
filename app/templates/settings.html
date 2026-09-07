@@ -64,6 +64,22 @@
           </div>
         </div>
 
+        <div class="settings-field">
+          <label for="home_places">Places that count as local</label>
+          <textarea
+            id="home_places"
+            name="home_places"
+            rows="3"
+            placeholder="Sassafras, Olinda, Kallista, Mount Dandenong, Monbulk, Belgrave"
+          >{{ s.home_places }}</textarea>
+          <div class="field-hint">
+            Your town and the neighbours you actually care about, comma separated, closest
+            first. Local papers cover a much wider area than you live in, so this is what
+            keeps a school fete forty minutes away out of your episode. Leave it empty to
+            fall back to broad region-wide news.
+          </div>
+        </div>
+
         <label class="checkbox-inline">
           <input type="checkbox" name="weather_enabled" value="1" {{ 'checked' if s.weather_enabled else '' }}>
           Include today's weather in the episode
