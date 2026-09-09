@@ -128,7 +128,6 @@ def dashboard(
             ).all()
         )
     base_url = resolve_base_url(request)
-    feed_url = f"{base_url}/feed.xml?token={settings.feed_token}"
     pending_message_count = sum(
         1 for message in messages if message.status == MessageStatus.pending
     )
@@ -141,7 +140,8 @@ def dashboard(
             "messages": messages,
             "episodes": episodes,
             "episode_numbers": _episode_numbers(session, episodes),
-            "feed_url": feed_url,
+            "feed_url": f"{base_url}/feed.xml?token={settings.feed_token}",
+            "latest_episode_url": f"{base_url}/media/latest.mp3",
             "settings": settings,
             "household_timezone": settings.timezone,
             "pending_message_count": pending_message_count,
@@ -298,6 +298,7 @@ def settings_page(
 ):
     settings = get_settings(session)
     credentials = load_credentials(settings)
+    base_url = resolve_base_url(request)
     tts_provider = resolve_tts_provider(
         credentials=credentials, settings_provider=settings.tts_provider
     )
@@ -319,7 +320,8 @@ def settings_page(
             "setup": _setup_checklist(session, settings),
             "sections": SETTINGS_SECTIONS,
             "credentials": credentials,
-            "feed_url": f"{resolve_base_url(request)}/feed.xml?token={settings.feed_token}",
+            "feed_url": f"{base_url}/feed.xml?token={settings.feed_token}",
+            "latest_episode_url": f"{base_url}/media/latest.mp3",
             "users": session.exec(select(User).order_by(User.created_at)).all(),
             "calendars": session.exec(
                 select(CalendarFeed).order_by(CalendarFeed.created_at)

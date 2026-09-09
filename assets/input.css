@@ -287,6 +287,15 @@
     @apply mt-6 flex flex-wrap items-center gap-3 border-t-[1.5px] border-border/60 pt-5;
   }
 
+  /* The one primary action on the page, on its own row under today's episode. */
+  .make-episode {
+    @apply flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between;
+  }
+
+  .make-episode-copy {
+    @apply min-w-0;
+  }
+
   .facts {
     @apply mt-5 grid gap-3 border-t-[1.5px] border-border/60 pt-5;
   }
@@ -359,13 +368,25 @@
     @apply h-3.5 w-3.5 rounded-full border-0 bg-accent-strong;
   }
 
-  /* ---------- Feed URL ---------- */
+  /* ---------- Copyable URLs ---------- */
 
-  .feed-url-row {
+  .url-field {
+    @apply flex flex-col gap-1.5;
+  }
+
+  .url-field + .url-field {
+    @apply mt-4;
+  }
+
+  .url-label {
+    @apply font-sans text-sm font-semibold text-ink;
+  }
+
+  .url-row {
     @apply flex items-center gap-1.5 rounded-lg border-[1.5px] border-border/70 bg-bg px-3 py-2 font-mono text-xs text-muted;
   }
 
-  .feed-url-text {
+  .url-text {
     @apply min-w-0 flex-1 break-all;
   }
 
@@ -377,19 +398,19 @@
     @apply block h-4 w-4;
   }
 
-  .feed-url-copy.is-copied {
+  .url-copy.is-copied {
     @apply text-good;
   }
 
-  .feed-url-copy .feed-copied-icon {
+  .url-copy .url-copied-icon {
     @apply hidden;
   }
 
-  .feed-url-copy.is-copied .feed-copy-icon {
+  .url-copy.is-copied .url-copy-icon {
     @apply hidden;
   }
 
-  .feed-url-copy.is-copied .feed-copied-icon {
+  .url-copy.is-copied .url-copied-icon {
     @apply block;
   }
 
