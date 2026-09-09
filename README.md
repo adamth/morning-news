@@ -94,12 +94,13 @@ volume, so you can't accidentally run with ephemeral storage.
 
 1. Open `http://localhost:8080` (or `http://<your-host>:8080`).
 2. Log in with your bootstrap credentials.
-3. **Settings → Connections** — add a narration key (ElevenLabs or Speechify) and one LLM provider key (see
-  [API keys](#api-keys-youll-need) above).
-4. **Settings → Advanced** — pick the LLM provider and model for script writing.
-5. **Settings → Basic** — location, schedule, RSS sources, voice, topic exclusions.
-6. **System status** — confirm everything connects.
-7. Copy the **RSS feed URL** from the dashboard into your podcast app. The URL contains
+3. **Settings → Connections** — add a narration key (ElevenLabs or Speechify) and one LLM
+   provider key (see [API keys](#api-keys-youll-need) above), then pick the model that
+   writes each script.
+4. **Settings → Schedule** — your town and the time the episode builds each morning.
+5. **Settings → In the show** — calendars, the stock watchlist, topics to skip, extra feeds.
+6. **Settings → Health** — confirm everything connects.
+7. Copy the **RSS feed URL** from the Episodes page into your podcast app. The URL contains
   an unguessable token so podcast apps can subscribe without logging in - treat
    it like a password. Episode audio itself is served without a token, and the newest
    episode is always available at `/media/latest.mp3`.
@@ -142,10 +143,9 @@ override keys saved in the web UI (useful for Docker automation).
 | `ANTHROPIC_API_KEY`  | —         | Overrides the key saved in Connections                                                                    |
 | `LLM_API_KEY`        | —         | Key for a custom OpenAI-compatible endpoint                                                               |
 | `LLM_BASE_URL`       | —         | Custom endpoint URL, e.g. `http://host.docker.internal:11434/v1` for Ollama                               |
-| `LLM_PROVIDER`       | —         | Server default provider (`openrouter`, `openai`, `anthropic`, `custom`) when none is selected in Advanced |
+| `LLM_PROVIDER`       | —         | Server default provider (`openrouter`, `openai`, `anthropic`, `custom`) when none is chosen in Connections |
 | `ZYTE_API_KEY`       | —         | Overrides the key saved in Connections                                                                    |
 | `FINNHUB_API_KEY`    | —         | Overrides the key saved in Connections                                                                    |
-| `NEWSDATA_API_KEY`   | —         | Reserved; not used yet                                                                                    |
 | `BASE_URL`           | —         | Force a canonical public URL for RSS/episode links (otherwise derived from each request)                  |
 | `DATA_DIR`           | —         | Data root (default `/data` in Docker, `./data` locally)                                                   |
 

@@ -182,12 +182,11 @@ def get_weather(
     longitude: float,
     timezone: str = "auto",
     *,
-    provider: str = "",
     weatherapi_api_key: str | None = None,
 ) -> WeatherSummary | None:
     """Return a short human-readable summary of today's weather."""
 
-    resolved = resolve_weather_provider(provider)
+    resolved = resolve_weather_provider(weatherapi_api_key)
     result = fetch_forecast(
         resolved,
         latitude,

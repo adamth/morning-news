@@ -72,16 +72,11 @@ class Settings(SQLModel, table=True):
     news_gl: str = "US"  # geographic edition
     news_ceid: str = "US:en"  # country:language edition pair
     weather_enabled: bool = True
-    weather_provider: str = "open_meteo"  # weatherapi | open_meteo
 
     # Stocks
     stocks_enabled: bool = False
-    stocks_mature_reactions: bool = False
 
-    # Content shaping
-    preferences_text: str = ""  # legacy free-text; superseded by preferred_categories
-    preferred_categories: str = ""  # comma-separated category ids
-    max_article_length: int = 6000
+    # Episode length
     target_minutes_min: float = 1.5
     target_minutes_max: float = 3.0
 
@@ -89,13 +84,9 @@ class Settings(SQLModel, table=True):
     tts_provider: str = ""  # elevenlabs | speechify; empty = auto-detect from saved keys
     voice_id: str = "JBFqnCBsd6RMkjVDRZzb"
     voice_model: str = "eleven_v3"
-    voice_language: str = ""  # empty = derive from news_hl
-    voice_accent: str = ""  # empty = any accent
     voice_randomize: bool = False
     speechify_emotion: str = ""  # Speechify SSML emotion; empty = natural delivery
-    intro_enabled: bool = True
     intro_play_seconds: float = 6.0  # full-volume play time before fade-out begins
-    outro_enabled: bool = True
     outro_play_seconds: float = 2.0  # seconds of outro mixed with the end of narration
 
     # LLM
@@ -112,7 +103,6 @@ class Settings(SQLModel, table=True):
     llm_api_key_enc: str = ""
     zyte_api_key_enc: str = ""
     finnhub_api_key_enc: str = ""
-    newsdata_api_key_enc: str = ""
     weatherapi_api_key_enc: str = ""
 
     # Podcast metadata
@@ -284,14 +274,9 @@ def _migrate_schema() -> None:
         "ALTER TABLE settings ADD COLUMN admin1 TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN country TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN intro_play_seconds REAL DEFAULT 6.0",
-        "ALTER TABLE settings ADD COLUMN outro_enabled INTEGER DEFAULT 1",
         "ALTER TABLE settings ADD COLUMN outro_play_seconds REAL DEFAULT 6.0",
-        "ALTER TABLE settings ADD COLUMN preferred_categories TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN stocks_enabled INTEGER DEFAULT 0",
-        "ALTER TABLE settings ADD COLUMN stocks_mature_reactions INTEGER DEFAULT 0",
         "ALTER TABLE episode ADD COLUMN market_summary TEXT DEFAULT ''",
-        "ALTER TABLE settings ADD COLUMN voice_language TEXT DEFAULT ''",
-        "ALTER TABLE settings ADD COLUMN voice_accent TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN voice_randomize INTEGER DEFAULT 0",
         "ALTER TABLE settings ADD COLUMN llm_provider TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN llm_model TEXT DEFAULT ''",
@@ -306,14 +291,10 @@ def _migrate_schema() -> None:
         "ALTER TABLE settings ADD COLUMN llm_api_key_enc TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN zyte_api_key_enc TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN finnhub_api_key_enc TEXT DEFAULT ''",
-        "ALTER TABLE settings ADD COLUMN newsdata_api_key_enc TEXT DEFAULT ''",
         "ALTER TABLE source ADD COLUMN priority INTEGER DEFAULT 0",
         "ALTER TABLE settings ADD COLUMN speechify_emotion TEXT DEFAULT ''",
-        "ALTER TABLE settings ADD COLUMN weather_provider TEXT DEFAULT 'metno'",
         "ALTER TABLE settings ADD COLUMN accuweather_api_key_enc TEXT DEFAULT ''",
-        "UPDATE settings SET weather_provider = 'metno' WHERE weather_provider IS NULL OR weather_provider = '' OR weather_provider = 'accuweather'",
         "ALTER TABLE settings ADD COLUMN weatherapi_api_key_enc TEXT DEFAULT ''",
-        "UPDATE settings SET weather_provider = 'open_meteo' WHERE weather_provider = 'metno'",
         "ALTER TABLE reporteditem ADD COLUMN url TEXT DEFAULT ''",
         "INSERT INTO calendarfeed (url, label, enabled, created_at) "
         "SELECT calendar_url, 'Family', 1, CURRENT_TIMESTAMP FROM settings "

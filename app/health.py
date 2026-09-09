@@ -428,18 +428,6 @@ def _probe_zyte(credentials: Credentials) -> tuple[CheckStatus, str]:
     return CheckStatus.ok, "Connected and authenticated"
 
 
-def _probe_newsdata(credentials: Credentials) -> tuple[CheckStatus, str]:
-    if not credentials.newsdata_api_key:
-        return (
-            CheckStatus.skipped,
-            "Optional — not used by this app yet",
-        )
-    return (
-        CheckStatus.skipped,
-        "Key is saved but NewsData.io is not wired into the pipeline yet",
-    )
-
-
 def _probe_open_meteo_geocoding() -> tuple[CheckStatus, str]:
     try:
         response = httpx.get(
@@ -458,19 +446,14 @@ def _probe_weather_forecast(
     credentials: Credentials,
 ) -> tuple[CheckStatus, str]:
     if not settings.weather_enabled:
-        return CheckStatus.skipped, "Weather is turned off on Settings → Basic"
+        return CheckStatus.skipped, "Weather is turned off in Settings"
     if settings.latitude is None or settings.longitude is None:
-        return CheckStatus.skipped, "Add your town on Settings → Basic to enable weather checks"
+        return CheckStatus.skipped, "Add your town in Settings to enable weather checks"
 
-    provider = resolve_weather_provider(settings.weather_provider)
+    provider = resolve_weather_provider(credentials.weatherapi_api_key)
     label = WEATHER_PROVIDER_LABELS.get(provider, provider.value)
     try:
         if provider is WeatherProviderId.weatherapi:
-            if not weatherapi_configured(credentials.weatherapi_api_key):
-                return (
-                    CheckStatus.unconfigured,
-                    "Add a WeatherAPI.com key in Settings → Connections",
-                )
             response = httpx.get(
                 WEATHERAPI_FORECAST_URL,
                 params={
@@ -724,18 +707,10 @@ def run_health_checks(session: Session, *, force_all: bool = False) -> HealthRep
             force_all=force_all,
             check_id="weatherapi",
             name="WeatherAPI.com",
-            description="Daily forecast when WeatherAPI.com is your weather source",
+            description="Preferred forecast source while its key is saved",
             required=False,
             credentials=credentials,
             probe=lambda: _probe_weatherapi(credentials),
-        ),
-        _run_check(
-            check_id="newsdata",
-            name="NewsData.io",
-            description="Optional — not used by Morning News yet",
-            group="api_keys",
-            required=False,
-            probe=lambda: _probe_newsdata(credentials),
         ),
         _run_check(
             check_id="location",

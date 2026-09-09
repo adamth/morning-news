@@ -20,7 +20,7 @@ Warm, domestic, trustworthy. Like a kitchen radio: cozy without being cute, comp
 
 - Startup landing page clichés: hero metrics, gradient text, eyebrow labels on every section, SaaS marketing scaffolding
 - Generic dark dashboard monoculture when it reads as "another admin panel" rather than a household tool
-- Consumer podcast app clones (Spotify/Apple Podcasts UI patterns) — this is configuration, not listening
+- Consumer podcast app clones (Spotify/Apple Podcasts library, browse, and recommendation patterns). A single sticky player for the household's own episodes is in scope; a listening app is not
 - Over-designed empty states or onboarding theatrics that get in the way of setup
 
 ## Design Principles
@@ -29,7 +29,8 @@ Warm, domestic, trustworthy. Like a kitchen radio: cozy without being cute, comp
 2. **Configure once, trust daily** — Setup flows (location, schedule, sources, voice) deserve clarity; daily use should be minimal. Status and episode health should be legible at a glance.
 3. **Private surprises stay private** — The message privacy model is a product feature, not an implementation detail. Pending messages, ownership, and one-time read-aloud behavior should be obvious in the UI.
 4. **Warmth through clarity** — Cozy doesn't mean decorative. Readable hierarchy, honest copy, and unhurried spacing carry the warmth; avoid ornament for its own sake.
-5. **Show the state of your show** — Episode status, pending messages, feed URL, and generation errors should never require digging. The dashboard is a confidence check, not a control panel.
+5. **Show the state of your show** — Episode status, pending messages, feed URL, and generation errors should never require digging. The Episodes page is a confidence check, not a control panel.
+6. **One page for settings** — Every setting lives on a single anchored page. A setting nobody can find is worse than a setting that does not exist, so a knob that cannot justify its own row gets deleted rather than filed under an extra tab.
 
 ## Accessibility & Inclusion
 

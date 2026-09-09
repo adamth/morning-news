@@ -63,7 +63,6 @@ class Config:
     llm_base_url: str | None = field(default_factory=lambda: env_str("LLM_BASE_URL"))
     llm_provider: str | None = field(default_factory=lambda: env_str("LLM_PROVIDER"))
     zyte_api_key: str | None = field(default_factory=lambda: env_str("ZYTE_API_KEY"))
-    newsdata_api_key: str | None = field(default_factory=lambda: env_str("NEWSDATA_API_KEY"))
     finnhub_api_key: str | None = field(default_factory=lambda: env_str("FINNHUB_API_KEY"))
 
     # Optional override for RSS enclosure / feed links. When unset, derived per request.

@@ -7,75 +7,80 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      rel="preload"
-      as="style"
-      href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Work+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap"
-    />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Work+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Work+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/static/style.css" />
     <script>
       (function () {
         if (!/[?&](msg|err)=/.test(location.search)) return;
-        var saved = sessionStorage.getItem("mn-scroll-y");
-        if (saved === null) return;
+        if (sessionStorage.getItem("mn-scroll-y") === null) return;
         if ("scrollRestoration" in history) history.scrollRestoration = "manual";
       })();
     </script>
   </head>
   <body>
     {% if user %}
-    <header class="sticky top-0 z-10 border-b border-border/60 bg-surface/85 backdrop-blur-md">
-      <div
-        class="mx-auto flex max-w-[56rem] flex-wrap items-center justify-between gap-x-6 gap-y-3 px-6 py-3.5"
-      >
-        <a
-          href="/"
-          class="brand-mark font-serif text-xl font-semibold no-underline"
-          >Morning News</a
-        >
-        <nav
-          class="flex flex-wrap items-center gap-5 text-sm"
-          aria-label="Primary"
-        >
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a href="/" class="brand-mark">Morning<span>News</span></a>
+        <nav class="navpills" aria-label="Primary">
           <a
             href="/"
-            class="no-underline {{ 'font-semibold text-accent-strong' if active == 'dashboard' else 'text-muted hover:text-accent' }}"
-            >Dashboard</a
+            class="navpill{{ ' is-active' if active == 'episodes' else '' }}"
+            {% if active == 'episodes' %}aria-current="page"{% endif %}
+            >Episodes</a
           >
           <a
             href="/settings"
-            class="no-underline {{ 'font-semibold text-accent-strong' if active == 'settings' else 'text-muted hover:text-accent' }}"
-            >Settings</a
+            class="navpill{{ ' is-active' if active == 'settings' else '' }}"
+            {% if active == 'settings' %}aria-current="page"{% endif %}
           >
-          {% if request.state.health_has_issues %}
-          <a
-            href="/settings/plumbing#health"
-            class="nav-issue-badge no-underline"
-            title="{{ request.state.health_issue_count }} system issue{{ 's' if request.state.health_issue_count != 1 else '' }}"
-            aria-label="{{ request.state.health_issue_count }} system issue{{ 's' if request.state.health_issue_count != 1 else '' }} — view health checks"
-            >!</a
-          >
-          {% endif %}
-          <span class="flex items-center gap-3 border-l border-border pl-5">
-            <span class="text-muted">{{ user.username }}</span>
-            <a href="/logout" class="text-muted no-underline hover:text-accent"
-              >Sign out</a
+            Settings
+            {% if request.state.health_has_issues %}
+            <span
+              class="navpill-badge"
+              aria-label="{{ request.state.health_issue_count }} system issue{{ 's' if request.state.health_issue_count != 1 else '' }}"
+              >{{ request.state.health_issue_count }}</span
             >
-          </span>
+            {% endif %}
+          </a>
         </nav>
+        <span class="topbar-user">
+          <span>{{ user.username }}</span>
+          <a href="/logout">Sign out</a>
+        </span>
       </div>
     </header>
     {% endif %}
     <main
-      class="{% block wrap_class %}mx-auto max-w-[56rem] px-6 py-8{% endblock %}"
+      class="{% block wrap_class %}mx-auto max-w-[62rem] px-5 py-8 sm:px-6{% endblock %}"
     >
       {% block content %}{% endblock %}
     </main>
-    <script src="/static/toast.js?v=4"></script>
-    <script src="/static/settings-forms.js?v=3"></script>
+
+    {% if user %}
+    <div class="player" id="player" hidden aria-label="Episode player">
+      <div class="player-inner">
+        <button type="button" class="play-btn" id="player-toggle" aria-label="Play">
+          <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+          <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+        </button>
+        <span class="player-title" id="player-title"></span>
+        <input type="range" class="scrub player-scrub" id="player-scrub" min="0" max="100" value="0" step="0.1" aria-label="Seek" />
+        <span class="player-time" id="player-time">0:00</span>
+        <button type="button" class="player-close" id="player-close" aria-label="Close player">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <audio id="player-audio" preload="none"></audio>
+    </div>
+    {% endif %}
+
+    <script src="/static/toast.js?v=5"></script>
+    <script src="/static/settings-forms.js?v=5"></script>
+    <script src="/static/feed-copy.js?v=1" defer></script>
+    {% if user %}<script src="/static/player.js?v=2" defer></script>{% endif %}
     {% block scripts %}{% endblock %}
   </body>
 </html>

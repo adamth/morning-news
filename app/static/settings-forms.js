@@ -5,8 +5,12 @@
   const dirtyForms = new Set();
   let submittingForm = null;
 
+  // Only settings forms get the unsaved-changes warning: a login or a message
+  // compose box has nothing worth warning about on the way out.
   const isTrackableForm = (form) =>
-    form.method.toLowerCase() === "post" && !form.hasAttribute("data-confirm");
+    form.method.toLowerCase() === "post" &&
+    !form.hasAttribute("data-confirm") &&
+    form.closest("[data-track-changes]") !== null;
 
   const indicatorFor = (form) => {
     const actions = form.querySelector(".form-actions");

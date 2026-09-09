@@ -80,14 +80,11 @@ def settings(db_session):
     settings.tts_provider = "elevenlabs"
     settings.voice_id = "test-voice"
     settings.voice_model = "eleven_v3"
-    settings.intro_enabled = False
-    settings.outro_enabled = False
     settings.news_hl = "en-US"
     settings.news_gl = "US"
     settings.news_ceid = "US:en"
     settings.admin1 = ""
     settings.country = ""
-    settings.max_article_length = 6000
     db_session.add(settings)
     db_session.commit()
     db_session.refresh(settings)
@@ -149,7 +146,7 @@ def mock_tts(monkeypatch):
     monkeypatch.setattr(
         pipeline_module,
         "resolve_episode_voice",
-        lambda provider, *, voice_id, voice_randomize, voice_language, voice_accent, news_hl, date_text: ResolvedVoice(
+        lambda provider, *, voice_id, voice_randomize, news_hl, date_text: ResolvedVoice(
             voice_id=voice_id, name="Test Host"
         ),
     )
@@ -237,11 +234,7 @@ def _stub_gather_source_data(
     market_reaction = ""
     if settings.stocks_enabled and stock_symbols:
         from app.sources import stocks as stocks_module
-        summary = stocks_module.get_market_summary(
-            stock_symbols,
-            credentials=credentials,
-            mature_reactions=settings.stocks_mature_reactions,
-        )
+        summary = stocks_module.get_market_summary(stock_symbols, credentials=credentials)
         if summary is not None:
             market_text = summary.text
             market_reaction = summary.reaction_hint
@@ -273,7 +266,7 @@ def mock_weather(monkeypatch):
 def mock_stocks(monkeypatch):
     from app.sources.stocks import MarketSummary
 
-    def stub_get_market_summary(symbols, *, credentials, mature_reactions=False):
+    def stub_get_market_summary(symbols, *, credentials):
         return MarketSummary(text="Mostly up - 3 of 4 holdings rose.", reaction_hint="a good morning")
 
     monkeypatch.setattr(stocks_module, "get_market_summary", stub_get_market_summary)

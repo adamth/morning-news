@@ -173,7 +173,6 @@ class TestBuildGenerationPrompt:
             locality="Testville",
             target_min=1.5,
             target_max=3.0,
-            priorities_text="(none selected)",
             excluded_topics=[],
             weather_text="sunny",
             market_text="up 2%",

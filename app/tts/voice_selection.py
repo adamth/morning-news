@@ -16,45 +16,10 @@ class ResolvedVoice:
     voice_id: str
     name: str
 
-VOICE_LANGUAGE_OPTIONS: list[tuple[str, str]] = [
-    ("", "Match news language"),
-    ("en", "English"),
-    ("es", "Spanish"),
-    ("fr", "French"),
-    ("de", "German"),
-    ("it", "Italian"),
-    ("pt", "Portuguese"),
-    ("nl", "Dutch"),
-    ("pl", "Polish"),
-    ("ja", "Japanese"),
-    ("zh", "Chinese"),
-    ("ko", "Korean"),
-    ("hi", "Hindi"),
-    ("ar", "Arabic"),
-]
 
-FALLBACK_ACCENTS: list[str] = [
-    "american",
-    "british",
-    "australian",
-    "irish",
-    "scottish",
-    "indian",
-    "canadian",
-    "south african",
-    "new zealand",
-    "swedish",
-    "italian",
-    "german",
-    "french",
-    "spanish",
-]
+def resolve_voice_language(news_hl: str) -> str:
+    """Narration language, taken from the news edition set with the household's town."""
 
-
-def resolve_voice_language(*, news_hl: str, voice_language: str) -> str:
-    explicit = voice_language.strip().lower()
-    if explicit:
-        return explicit
     if news_hl.strip():
         return news_hl.strip().split("-", 1)[0].lower()
     return "en"
@@ -80,13 +45,12 @@ def pick_daily_voice(
     *,
     date_text: str,
     language: str,
-    accent: str,
     fallback_voice_id: str,
     fallback_voice_name: str,
 ) -> ResolvedVoice:
     if not voices:
         return ResolvedVoice(voice_id=fallback_voice_id, name=fallback_voice_name)
-    seed = f"{date_text}|{language}|{accent.strip().lower()}"
+    seed = f"{date_text}|{language}"
     digest = hashlib.sha256(seed.encode()).hexdigest()
     index = int(digest, 16) % len(voices)
     chosen = voices[index]
@@ -98,8 +62,6 @@ def resolve_episode_voice(
     *,
     voice_id: str,
     voice_randomize: bool,
-    voice_language: str,
-    voice_accent: str,
     news_hl: str,
     date_text: str,
 ) -> ResolvedVoice:
@@ -109,63 +71,26 @@ def resolve_episode_voice(
     if not voice_randomize:
         return ResolvedVoice(voice_id=voice_id, name=fallback_name)
 
-    language = resolve_voice_language(news_hl=news_hl, voice_language=voice_language)
-    accent = voice_accent.strip().lower()
-
-    library_voices = provider.list_voices_matching(language=language, accent=accent or None)
-    if not library_voices and accent:
-        library_voices = provider.list_voices_matching(language=language)
-
+    language = resolve_voice_language(news_hl)
     resolved = pick_daily_voice(
-        library_voices,
+        provider.list_voices_matching(language=language),
         date_text=date_text,
         language=language,
-        accent=accent,
         fallback_voice_id=voice_id,
         fallback_voice_name=fallback_name,
     )
     if resolved.voice_id != voice_id:
         logger.info(
-            "Daily narrator: %s (%s) — language=%s, accent=%s",
+            "Daily narrator: %s (%s) — language=%s",
             display_voice_name(resolved.name),
             resolved.voice_id,
             language,
-            accent or "any",
         )
     return resolved
 
 
-def list_voice_options(
-    provider: TtsProvider,
-    *,
-    voice_language: str,
-    voice_accent: str,
-    news_hl: str,
-) -> list[TtsVoice]:
-    """Voices for the settings dropdown, filtered when language or accent are set."""
-    language = resolve_voice_language(news_hl=news_hl, voice_language=voice_language)
-    accent = voice_accent.strip().lower()
+def list_voice_options(provider: TtsProvider, *, news_hl: str) -> list[TtsVoice]:
+    """Voices for the settings dropdown, narrowed to the narration language."""
 
-    library_voices = provider.list_voices_matching(language=language, accent=accent or None)
-    if library_voices:
-        return library_voices
-
-    account_voices = provider.list_voices()
-    if accent:
-        filtered = [voice for voice in account_voices if voice.accent.lower() == accent]
-        return filtered or account_voices
-    return account_voices
-
-
-def list_accent_options(
-    provider: TtsProvider,
-    *,
-    voice_language: str,
-    news_hl: str,
-) -> list[str]:
-    language = resolve_voice_language(news_hl=news_hl, voice_language=voice_language)
-    library_voices = provider.list_voices_matching(language=language)
-    accents = {voice.accent.strip().lower() for voice in library_voices if voice.accent.strip()}
-    if not provider.lists_full_catalog:
-        accents.update(FALLBACK_ACCENTS)
-    return sorted(accents)
+    language = resolve_voice_language(news_hl)
+    return provider.list_voices_matching(language=language) or provider.list_voices()

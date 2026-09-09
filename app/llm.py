@@ -234,7 +234,6 @@ def _build_generation_prompt(
     locality: str,
     target_min: float,
     target_max: float,
-    priorities_text: str,
     excluded_topics: list[str],
     weather_text: str,
     market_text: str,
@@ -392,10 +391,6 @@ STRUCTURE (adapt naturally, omit empty sections):
 6. Any personal messages, if any.
 7. One-line sign-off.
 
-STORY PRIORITIES (soft guidance — prefer these when picking articles, but they are NOT \
-hard rules; a strong story outside these categories is still worth including):
-{priorities_text}
-
 EXCLUDED TOPICS (never include stories primarily about these): {excluded_block}
 
 WEATHER: {weather_text or "(unavailable)"}
@@ -456,7 +451,6 @@ def generate_episode(
     locality: str,
     target_min: float,
     target_max: float,
-    priorities_text: str,
     excluded_topics: list[str],
     weather_text: str,
     market_text: str = "",
@@ -476,7 +470,6 @@ def generate_episode(
         locality=locality,
         target_min=target_min,
         target_max=target_max,
-        priorities_text=priorities_text,
         excluded_topics=excluded_topics,
         weather_text=weather_text,
         market_text=market_text,

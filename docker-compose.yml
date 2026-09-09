@@ -34,7 +34,6 @@ services:
       LLM_BASE_URL: "${LLM_BASE_URL:-}"
       LLM_PROVIDER: "${LLM_PROVIDER:-}"
       ZYTE_API_KEY: "${ZYTE_API_KEY:-}"
-      NEWSDATA_API_KEY: "${NEWSDATA_API_KEY:-}"
       FINNHUB_API_KEY: "${FINNHUB_API_KEY:-}"
       # First-run login (only used when no users exist yet).
       BOOTSTRAP_USERNAME: "${BOOTSTRAP_USERNAME:-}"

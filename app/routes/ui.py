@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Query, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from ..auth import create_user, web_user
 from ..audio import probe_duration
@@ -35,7 +35,6 @@ from ..db import (
 from ..episodes import EpisodeDeleteError, delete_episode
 from ..episode_log import category_label
 from ..health import get_health_report
-from ..news_categories import NEWS_CATEGORIES, parse_selected, serialize_selected
 from ..report_types import REPORT_TYPES, WEEKDAY_LABELS
 from ..llm_models import list_chat_models
 from ..llm_providers import (
@@ -49,24 +48,16 @@ from ..llm_providers import (
 from ..pipeline import generate_episode_background
 from ..scheduler import reschedule
 from ..sources import news, weather
-from ..sources.weather_providers import (
-    WEATHER_PROVIDER_LABELS,
-    WeatherProviderId,
-    resolve_weather_provider,
-    weatherapi_configured,
-)
 from ..templating import templates
 from ..tts import (
     DEFAULT_VOICE_IDS,
     DEFAULT_VOICE_MODELS,
     SPEECHIFY_EMOTION_OPTIONS,
     TTS_PROVIDER_LABELS,
-    VOICE_LANGUAGE_OPTIONS,
     VOICE_MODEL_OPTIONS,
     TtsProviderId,
     available_tts_providers,
     get_provider,
-    list_accent_options,
     list_voice_options,
     normalize_speechify_emotion,
     normalize_voice_model,
@@ -77,9 +68,36 @@ from ..urls import resolve_base_url
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+SETTINGS_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("schedule", "Schedule"),
+    ("content", "In the show"),
+    ("voice", "Voice"),
+    ("music", "Music"),
+    ("feed", "Podcast feed"),
+    ("household", "Household"),
+    ("connections", "Connections"),
+    ("health", "Health"),
+)
+
 
 def _split_comma_list(raw: str) -> list[str]:
     return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _settings_redirect(anchor: str, *, msg: str = "", err: str = "") -> RedirectResponse:
+    query = f"?msg={quote_plus(msg)}" if msg else f"?err={quote_plus(err)}" if err else ""
+    return RedirectResponse(f"/settings{query}#{anchor}", status_code=303)
+
+
+def _episode_numbers(session: Session, episodes: list[Episode]) -> dict[int, int]:
+    """Map episode id to its position in the run, counting from the first ever episode."""
+
+    total = session.exec(select(func.count()).select_from(Episode)).one()
+    return {
+        episode.id: total - offset
+        for offset, episode in enumerate(episodes)
+        if episode.id is not None
+    }
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -98,7 +116,6 @@ def dashboard(
     latest_episode = episodes[0] if episodes else None
     latest_episode_article_count = 0
     latest_episode_message_count = 0
-    latest_episode_media_url = None
     if latest_episode and latest_episode.id is not None:
         latest_episode_article_count = len(
             session.exec(
@@ -110,37 +127,28 @@ def dashboard(
                 select(Message).where(Message.episode_id == latest_episode.id)
             ).all()
         )
-        if (
-            latest_episode.status == EpisodeStatus.ready
-            and latest_episode.audio_path
-        ):
-            latest_episode_media_url = (
-                f"{resolve_base_url(request)}/media/{latest_episode.id}.mp3"
-            )
     base_url = resolve_base_url(request)
     feed_url = f"{base_url}/feed.xml?token={settings.feed_token}"
     pending_message_count = sum(
         1 for message in messages if message.status == MessageStatus.pending
     )
-    setup_incomplete = settings.latitude is None or not settings.locality.strip()
-    location_label = settings.locality.strip() or settings.address.strip() or None
     return templates.TemplateResponse(
         request,
         "dashboard.html",
         {
             "user": user,
-            "active": "dashboard",
+            "active": "episodes",
             "messages": messages,
             "episodes": episodes,
+            "episode_numbers": _episode_numbers(session, episodes),
             "feed_url": feed_url,
             "settings": settings,
             "household_timezone": settings.timezone,
             "pending_message_count": pending_message_count,
-            "setup_incomplete": setup_incomplete,
-            "location_label": location_label,
+            "setup_incomplete": settings.latitude is None or not settings.locality.strip(),
+            "location_label": settings.locality.strip() or settings.address.strip() or None,
             "latest_episode_article_count": latest_episode_article_count,
             "latest_episode_message_count": latest_episode_message_count,
-            "latest_episode_media_url": latest_episode_media_url,
         },
     )
 
@@ -177,7 +185,9 @@ def delete_episode_route(
     try:
         delete_episode(session, episode_id)
     except EpisodeDeleteError as error:
-        return RedirectResponse(f"/episodes/{episode_id}?err={quote_plus(str(error))}", status_code=303)
+        return RedirectResponse(
+            f"/episodes/{episode_id}?err={quote_plus(str(error))}", status_code=303
+        )
     return RedirectResponse("/?msg=Episode+deleted.", status_code=303)
 
 
@@ -202,20 +212,24 @@ def episode_page(
         .where(EpisodeLogEntry.episode_id == episode_id)
         .order_by(EpisodeLogEntry.sequence)
     ).all()
-    log_groups = _group_log_entries(log_entries)
-    media_url = f"{resolve_base_url(request)}/media/{episode.id}.mp3"
+    episode_number = session.exec(
+        select(func.count())
+        .select_from(Episode)
+        .where(Episode.created_at <= episode.created_at)
+    ).one()
     return templates.TemplateResponse(
         request,
         "episode.html",
         {
             "user": user,
-            "active": "dashboard",
+            "active": "episodes",
             "episode": episode,
+            "episode_number": episode_number,
             "household_timezone": get_settings(session).timezone,
             "articles": articles,
             "reported_items": reported_items,
-            "log_groups": log_groups,
-            "media_url": media_url,
+            "log_groups": _group_log_entries(log_entries),
+            "media_url": f"{resolve_base_url(request)}/media/{episode.id}.mp3",
         },
     )
 
@@ -256,7 +270,9 @@ def generate_now(
 def _setup_checklist(session: Session, settings) -> dict | None:
     """First-run checklist state; None once every step is complete."""
     credentials = load_credentials(settings)
-    keys_done = bool(available_tts_providers(credentials)) and bool(available_providers(credentials))
+    keys_done = bool(available_tts_providers(credentials)) and bool(
+        available_providers(credentials)
+    )
     town_done = settings.latitude is not None
     listen_done = (
         session.exec(select(Episode).where(Episode.status == EpisodeStatus.ready)).first()
@@ -276,39 +292,47 @@ def _setup_checklist(session: Session, settings) -> dict | None:
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(
     request: Request,
+    refresh: bool = False,
     user: User = Depends(web_user),
     session: Session = Depends(get_session),
 ):
     settings = get_settings(session)
     credentials = load_credentials(settings)
-    preferences = session.exec(select(Preference).order_by(Preference.created_at)).all()
-    watchlist = session.exec(select(WatchlistItem).order_by(WatchlistItem.created_at)).all()
-    intro_duration = (
-        probe_duration(config.intro_path) if config.intro_path.exists() else None
-    )
-    outro_duration = (
-        probe_duration(config.outro_path) if config.outro_path.exists() else None
-    )
     tts_provider = resolve_tts_provider(
         credentials=credentials, settings_provider=settings.tts_provider
     )
     configured_tts = available_tts_providers(credentials)
+    llm_provider = resolve_provider(
+        credentials=credentials,
+        settings_provider=settings.llm_provider,
+        settings_model=settings.llm_model,
+    )
+    configured_providers = available_providers(credentials)
     return templates.TemplateResponse(
         request,
         "settings.html",
         {
             "user": user,
             "active": "settings",
-            "settings_tab": "show",
             "s": settings,
+            "household_timezone": settings.timezone,
             "setup": _setup_checklist(session, settings),
-            "preferences": preferences,
-            "watchlist": watchlist,
-            "news_categories": NEWS_CATEGORIES,
-            "selected_categories": set(parse_selected(settings.preferred_categories)),
+            "sections": SETTINGS_SECTIONS,
+            "credentials": credentials,
+            "feed_url": f"{resolve_base_url(request)}/feed.xml?token={settings.feed_token}",
+            "users": session.exec(select(User).order_by(User.created_at)).all(),
+            "calendars": session.exec(
+                select(CalendarFeed).order_by(CalendarFeed.created_at)
+            ).all(),
+            "preferences": session.exec(select(Preference).order_by(Preference.created_at)).all(),
+            "watchlist": session.exec(
+                select(WatchlistItem).order_by(WatchlistItem.created_at)
+            ).all(),
+            "sources": session.exec(select(Source).order_by(Source.created_at)).all(),
+            "weekly_reports": _weekly_report_map(session),
+            "weekly_report_days": WEEKDAY_LABELS,
+            "report_type_options": REPORT_TYPES,
             "voices": _safe_list_voices(settings, credentials),
-            "voice_accents": _safe_list_accents(settings, credentials),
-            "voice_languages": VOICE_LANGUAGE_OPTIONS,
             "tts_provider": tts_provider.value,
             "tts_provider_options": [
                 {
@@ -323,87 +347,15 @@ def settings_page(
             "speechify_emotion_options": SPEECHIFY_EMOTION_OPTIONS,
             "speechify_emotion": normalize_speechify_emotion(settings.speechify_emotion),
             "intro_exists": config.intro_path.exists(),
-            "intro_duration": intro_duration,
+            "intro_duration": (
+                probe_duration(config.intro_path) if config.intro_path.exists() else None
+            ),
             "outro_exists": config.outro_path.exists(),
-            "outro_duration": outro_duration,
-            "weather_provider": resolve_weather_provider(settings.weather_provider).value,
-            "weather_provider_options": [
-                {
-                    "id": provider.value,
-                    "label": WEATHER_PROVIDER_LABELS[provider],
-                    "configured": (
-                        True
-                        if provider is not WeatherProviderId.weatherapi
-                        else weatherapi_configured(credentials.weatherapi_api_key)
-                    ),
-                }
-                for provider in WeatherProviderId
-            ],
-            "weekly_reports": _weekly_report_map(session),
-            "weekly_report_days": WEEKDAY_LABELS,
-            "report_type_options": REPORT_TYPES,
-        },
-    )
-
-
-@router.get("/settings/household", response_class=HTMLResponse)
-def household_settings_page(
-    request: Request,
-    user: User = Depends(web_user),
-    session: Session = Depends(get_session),
-):
-    settings = get_settings(session)
-    users = session.exec(select(User).order_by(User.created_at)).all()
-    calendars = session.exec(select(CalendarFeed).order_by(CalendarFeed.created_at)).all()
-    return templates.TemplateResponse(
-        request,
-        "settings_household.html",
-        {
-            "user": user,
-            "active": "settings",
-            "settings_tab": "household",
-            "s": settings,
-            "household_timezone": settings.timezone,
-            "setup": _setup_checklist(session, settings),
-            "users": users,
-            "calendars": calendars,
-        },
-    )
-
-
-@router.get("/settings/plumbing", response_class=HTMLResponse)
-def plumbing_settings_page(
-    request: Request,
-    refresh: bool = False,
-    user: User = Depends(web_user),
-    session: Session = Depends(get_session),
-):
-    settings = get_settings(session)
-    credentials = load_credentials(settings)
-    sources = session.exec(select(Source).order_by(Source.created_at)).all()
-    active_provider = resolve_provider(
-        credentials=credentials,
-        settings_provider=settings.llm_provider,
-        settings_model=settings.llm_model,
-    )
-    llm_models = list_chat_models(active_provider, credentials=credentials)
-    configured_providers = available_providers(credentials)
-    report = get_health_report(force_refresh=refresh)
-    return templates.TemplateResponse(
-        request,
-        "settings_plumbing.html",
-        {
-            "user": user,
-            "active": "settings",
-            "settings_tab": "plumbing",
-            "s": settings,
-            "household_timezone": settings.timezone,
-            "setup": _setup_checklist(session, settings),
-            "credentials": credentials,
-            "sources": sources,
-            "report": report,
-            "llm_models": llm_models,
-            "llm_provider": active_provider.value,
+            "outro_duration": (
+                probe_duration(config.outro_path) if config.outro_path.exists() else None
+            ),
+            "llm_models": list_chat_models(llm_provider, credentials=credentials),
+            "llm_provider": llm_provider.value,
             "llm_provider_options": [
                 {
                     "id": provider.value,
@@ -413,13 +365,34 @@ def plumbing_settings_page(
                 }
                 for provider in LlmProviderId
             ],
+            "report": get_health_report(force_refresh=refresh),
         },
     )
 
 
+@router.get("/settings/household")
+def household_redirect():
+    return RedirectResponse("/settings#household", status_code=301)
+
+
+@router.get("/settings/plumbing")
+def plumbing_redirect():
+    return RedirectResponse("/settings#connections", status_code=301)
+
+
 @router.get("/settings/connections")
 def connections_redirect():
-    return RedirectResponse("/settings/plumbing", status_code=301)
+    return RedirectResponse("/settings#connections", status_code=301)
+
+
+@router.get("/settings/status")
+def status_redirect():
+    return RedirectResponse("/settings#health", status_code=301)
+
+
+@router.get("/settings/advanced")
+def advanced_redirect():
+    return RedirectResponse("/settings", status_code=301)
 
 
 @router.post("/settings/connections")
@@ -435,7 +408,6 @@ def save_connections_settings(
     llm_base_url: str = Form(""),
     zyte_api_key: str = Form(""),
     finnhub_api_key: str = Form(""),
-    newsdata_api_key: str = Form(""),
     weatherapi_api_key: str = Form(""),
     clear_elevenlabs: str | None = Form(None),
     clear_speechify: str | None = Form(None),
@@ -445,7 +417,6 @@ def save_connections_settings(
     clear_llm: str | None = Form(None),
     clear_zyte: str | None = Form(None),
     clear_finnhub: str | None = Form(None),
-    clear_newsdata: str | None = Form(None),
     clear_weatherapi: str | None = Form(None),
 ):
     settings = get_settings(session)
@@ -460,7 +431,6 @@ def save_connections_settings(
         llm_base_url=llm_base_url,
         zyte_api_key=zyte_api_key,
         finnhub_api_key=finnhub_api_key,
-        newsdata_api_key=newsdata_api_key,
         weatherapi_api_key=weatherapi_api_key,
         clear_elevenlabs=clear_elevenlabs is not None,
         clear_speechify=clear_speechify is not None,
@@ -470,18 +440,14 @@ def save_connections_settings(
         clear_llm=clear_llm is not None,
         clear_zyte=clear_zyte is not None,
         clear_finnhub=clear_finnhub is not None,
-        clear_newsdata=clear_newsdata is not None,
         clear_weatherapi=clear_weatherapi is not None,
     )
     settings.updated_at = utcnow()
     session.add(settings)
     session.commit()
-    return RedirectResponse("/settings/plumbing?msg=Keys+saved.+The+health+checks+below+will+confirm+everything+connects.", status_code=303)
-
-
-@router.get("/settings/status")
-def status_redirect():
-    return RedirectResponse("/settings/plumbing#health", status_code=301)
+    return _settings_redirect(
+        "connections", msg="Keys saved. The health checks below confirm everything connects."
+    )
 
 
 @router.get("/api/health")
@@ -492,19 +458,13 @@ def health_status_api(
     return JSONResponse(get_health_report(force_refresh=refresh).to_dict())
 
 
-@router.get("/settings/advanced")
-def advanced_redirect():
-    return RedirectResponse("/settings", status_code=301)
-
-
 @router.get("/api/locations/search")
 def location_search(
     q: str = Query(""),
     user: User = Depends(web_user),
 ):
-    results = weather.search_locations(q)
     payload = []
-    for result in results:
+    for result in weather.search_locations(q):
         news_hl, news_gl, news_ceid = weather.news_edition_for_country(result.country_code)
         payload.append(
             {
@@ -547,16 +507,12 @@ def llm_model_search(
             for model in models
             if query in model.id.lower() or query in model.name.lower()
         ]
-    return JSONResponse(
-        [{"id": model.id, "label": model.label} for model in models[:25]]
-    )
+    return JSONResponse([{"id": model.id, "label": model.label} for model in models[:25]])
 
 
 @router.get("/api/tts/voices")
 def tts_voice_options_api(
     provider: str = Query(""),
-    voice_language: str = Query(""),
-    voice_accent: str = Query(""),
     user: User = Depends(web_user),
     session: Session = Depends(get_session),
 ):
@@ -566,24 +522,12 @@ def tts_voice_options_api(
         credentials=credentials,
         settings_provider=provider.strip() or settings.tts_provider,
     )
-    language = voice_language.strip().lower()
-    accent = voice_accent.strip().lower()
+    configured = provider_id in available_tts_providers(credentials)
     voices: list = []
-    accents: list[str] = []
-    if provider_id in available_tts_providers(credentials):
+    if configured:
         try:
-            tts = get_provider(
-                credentials=credentials, settings_provider=provider_id.value
-            )
             voices = list_voice_options(
-                tts,
-                voice_language=language,
-                voice_accent=accent,
-                news_hl=settings.news_hl,
-            )
-            accents = list_accent_options(
-                tts,
-                voice_language=language,
+                get_provider(credentials=credentials, settings_provider=provider_id.value),
                 news_hl=settings.news_hl,
             )
         except Exception as error:
@@ -592,7 +536,7 @@ def tts_voice_options_api(
     return JSONResponse(
         {
             "provider": provider_id.value,
-            "configured": provider_id in available_tts_providers(credentials),
+            "configured": configured,
             "voices": [
                 {
                     "voice_id": voice.voice_id,
@@ -602,7 +546,6 @@ def tts_voice_options_api(
                 }
                 for voice in voices
             ],
-            "accents": accents,
             "voice_models": [
                 {"id": model_id, "label": label}
                 for model_id, label in VOICE_MODEL_OPTIONS[provider_id]
@@ -624,7 +567,9 @@ def openrouter_model_search(
     user: User = Depends(web_user),
     session: Session = Depends(get_session),
 ):
-    return llm_model_search(provider=LlmProviderId.openrouter.value, q=q, user=user, session=session)
+    return llm_model_search(
+        provider=LlmProviderId.openrouter.value, q=q, user=user, session=session
+    )
 
 
 @router.post("/settings")
@@ -644,38 +589,43 @@ def save_settings(
     news_hl: str = Form("en-US"),
     news_gl: str = Form("US"),
     news_ceid: str = Form("US:en"),
-    weather_enabled: str | None = Form(None),
-    weather_provider: str = Form("open_meteo"),
+    target_minutes_min: float = Form(1.5),
+    target_minutes_max: float = Form(3.0),
 ):
     settings = get_settings(session)
 
-    hour, minute = _parse_time(schedule_time)
-    settings.schedule_hour = hour
-    settings.schedule_minute = minute
+    settings.schedule_hour, settings.schedule_minute = _parse_time(schedule_time)
 
     timezone_name = timezone.strip() or "UTC"
     try:
         ZoneInfo(timezone_name)
     except (ZoneInfoNotFoundError, ValueError):
-        return RedirectResponse(
-            "/settings?err=That+time+zone+isn't+recognised.+It+fills+in+automatically+when+you+pick+your+town+from+the+list.",
-            status_code=303,
+        return _settings_redirect(
+            "schedule",
+            err=(
+                "That time zone isn't recognised. It fills in automatically "
+                "when you pick your town from the list."
+            ),
+        )
+
+    if target_minutes_max < target_minutes_min:
+        return _settings_redirect(
+            "schedule",
+            err="The longest length can't be shorter than the shortest. Swap the two numbers.",
         )
 
     address = address.strip()
     if address:
         if location_confirmed != "1" or not latitude or not longitude or not locality:
-            return RedirectResponse(
-                "/settings?err=Choose+your+town+from+the+list+before+saving.",
-                status_code=303,
+            return _settings_redirect(
+                "schedule", err="Choose your town from the list before saving."
             )
         try:
             settings.latitude = float(latitude)
             settings.longitude = float(longitude)
         except ValueError:
-            return RedirectResponse(
-                "/settings?err=That+town+didn't+save.+Select+one+from+the+list+and+try+again.",
-                status_code=303,
+            return _settings_redirect(
+                "schedule", err="That town didn't save. Select one from the list and try again."
             )
         settings.address = address
         settings.locality = locality.strip()
@@ -695,15 +645,30 @@ def save_settings(
     settings.news_hl = news_hl.strip() or "en-US"
     settings.news_gl = news_gl.strip() or "US"
     settings.news_ceid = news_ceid.strip() or "US:en"
-    settings.weather_enabled = weather_enabled is not None
-    resolved_provider = resolve_weather_provider(weather_provider)
-    settings.weather_provider = resolved_provider.value
+    settings.target_minutes_min = max(0.5, target_minutes_min)
+    settings.target_minutes_max = target_minutes_max
     settings.updated_at = utcnow()
 
     session.add(settings)
     session.commit()
     reschedule()
-    return RedirectResponse("/settings?msg=Schedule+and+location+saved.+The+next+episode+will+use+these+settings.", status_code=303)
+    return _settings_redirect("schedule", msg="Schedule saved. The next episode will use it.")
+
+
+@router.post("/settings/content")
+def save_content_settings(
+    user: User = Depends(web_user),
+    session: Session = Depends(get_session),
+    weather_enabled: str | None = Form(None),
+    stocks_enabled: str | None = Form(None),
+):
+    settings = get_settings(session)
+    settings.weather_enabled = weather_enabled is not None
+    settings.stocks_enabled = stocks_enabled is not None
+    settings.updated_at = utcnow()
+    session.add(settings)
+    session.commit()
+    return _settings_redirect("content", msg="Saved.")
 
 
 @router.post("/calendars")
@@ -715,13 +680,10 @@ def add_calendar(
 ):
     calendar_url = url.strip()
     if not calendar_url:
-        return RedirectResponse(
-            "/settings/household?err=Paste+a+calendar+link+to+add+it.#calendar",
-            status_code=303,
-        )
+        return _settings_redirect("calendars", err="Paste a calendar link to add it.")
     session.add(CalendarFeed(url=calendar_url, label=label.strip()))
     session.commit()
-    return RedirectResponse("/settings/household?msg=Calendar+added.#calendar", status_code=303)
+    return _settings_redirect("calendars", msg="Calendar added.")
 
 
 @router.post("/calendars/{feed_id}/toggle")
@@ -731,13 +693,13 @@ def toggle_calendar(
     session: Session = Depends(get_session),
 ):
     feed = session.get(CalendarFeed, feed_id)
-    message = "Calendar+not+found."
+    message = "Calendar not found."
     if feed is not None:
         feed.enabled = not feed.enabled
         session.add(feed)
         session.commit()
-        message = "Calendar+turned+on." if feed.enabled else "Calendar+turned+off."
-    return RedirectResponse(f"/settings/household?msg={message}#calendar", status_code=303)
+        message = "Calendar turned on." if feed.enabled else "Calendar turned off."
+    return _settings_redirect("calendars", msg=message)
 
 
 @router.post("/calendars/{feed_id}/delete")
@@ -750,23 +712,7 @@ def delete_calendar(
     if feed is not None:
         session.delete(feed)
         session.commit()
-    return RedirectResponse("/settings/household?msg=Calendar+removed.#calendar", status_code=303)
-
-
-@router.post("/settings/stocks")
-def save_stocks_settings(
-    user: User = Depends(web_user),
-    session: Session = Depends(get_session),
-    stocks_enabled: str | None = Form(None),
-    stocks_mature_reactions: str | None = Form(None),
-):
-    settings = get_settings(session)
-    settings.stocks_enabled = stocks_enabled is not None
-    settings.stocks_mature_reactions = stocks_mature_reactions is not None
-    settings.updated_at = utcnow()
-    session.add(settings)
-    session.commit()
-    return RedirectResponse("/settings?msg=Stock+watch+settings+saved.", status_code=303)
+    return _settings_redirect("calendars", msg="Calendar removed.")
 
 
 @router.post("/watchlist")
@@ -780,14 +726,9 @@ def add_watchlist_item(
 
     symbols = _split_comma_list(symbol)
     if not symbols:
-        return RedirectResponse(
-            "/settings?err=Enter+at+least+one+ticker+symbol.",
-            status_code=303,
-        )
+        return _settings_redirect("stocks", err="Enter at least one ticker symbol.")
 
-    existing_symbols = {
-        item.symbol for item in session.exec(select(WatchlistItem)).all()
-    }
+    existing_symbols = {item.symbol for item in session.exec(select(WatchlistItem)).all()}
     label_text = label.strip()
     use_label = label_text if len(symbols) == 1 else ""
 
@@ -812,35 +753,35 @@ def add_watchlist_item(
 
     if not added:
         if invalid and not duplicates:
-            return RedirectResponse(
-                "/settings?err=Enter+valid+ticker+symbols+(e.g.+AAPL+or+%5EGSPC).",
-                status_code=303,
+            return _settings_redirect(
+                "stocks", err="Enter valid ticker symbols (e.g. AAPL or ^GSPC)."
             )
         if duplicates and not invalid:
-            err = (
-                "That+ticker+is+already+on+your+watchlist."
-                if len(symbols) == 1
-                else "Those+tickers+are+already+on+your+watchlist."
+            return _settings_redirect(
+                "stocks",
+                err=(
+                    "That ticker is already on your watchlist."
+                    if len(symbols) == 1
+                    else "Those tickers are already on your watchlist."
+                ),
             )
-            return RedirectResponse(f"/settings?err={err}", status_code=303)
-        return RedirectResponse(
-            "/settings?err=No+new+stocks+added.+Check+ticker+symbols+and+try+again.",
-            status_code=303,
+        return _settings_redirect(
+            "stocks", err="No new stocks added. Check the ticker symbols and try again."
         )
 
     message = (
-        "Stock+added+to+watchlist."
+        "Stock added to the watchlist."
         if len(added) == 1
-        else f"{len(added)}+stocks+added+to+watchlist."
+        else f"{len(added)} stocks added to the watchlist."
     )
     extras: list[str] = []
     if invalid:
-        extras.append(f"skipped+invalid:+{quote_plus(', '.join(invalid))}")
+        extras.append(f"skipped invalid: {', '.join(invalid)}")
     if duplicates:
-        extras.append(f"already+listed:+{quote_plus(', '.join(duplicates))}")
+        extras.append(f"already listed: {', '.join(duplicates)}")
     if extras:
-        message += "+(" + ";+".join(extras) + ")"
-    return RedirectResponse(f"/settings?msg={message}", status_code=303)
+        message += " (" + "; ".join(extras) + ")"
+    return _settings_redirect("stocks", msg=message)
 
 
 @router.post("/watchlist/{item_id}/delete")
@@ -853,21 +794,7 @@ def delete_watchlist_item(
     if item is not None:
         session.delete(item)
         session.commit()
-    return RedirectResponse("/settings?msg=Stock+removed+from+watchlist.", status_code=303)
-
-
-@router.post("/settings/story-mix")
-def save_story_mix_settings(
-    user: User = Depends(web_user),
-    session: Session = Depends(get_session),
-    preferred_categories: list[str] = Form(default=[]),
-):
-    settings = get_settings(session)
-    settings.preferred_categories = serialize_selected(preferred_categories)
-    settings.updated_at = utcnow()
-    session.add(settings)
-    session.commit()
-    return RedirectResponse("/settings?msg=Story+mix+saved.", status_code=303)
+    return _settings_redirect("stocks", msg="Stock removed from the watchlist.")
 
 
 @router.post("/settings/weekly-reports")
@@ -886,9 +813,8 @@ def save_weekly_reports(
     """
 
     if len(report_type) != 7 or len(user_input) != 7:
-        return RedirectResponse(
-            "/settings?err=Weekly+report+settings+were+malformed.+Please+try+again.#weekly-reports",
-            status_code=303,
+        return _settings_redirect(
+            "weekly", err="Weekly report settings were malformed. Please try again."
         )
 
     existing = {row.day_of_week: row for row in session.exec(select(WeeklyReport)).all()}
@@ -920,14 +846,8 @@ def save_weekly_reports(
 
     if changed:
         session.commit()
-        return RedirectResponse(
-            "/settings?msg=Weekly+report+settings+saved.#weekly-reports",
-            status_code=303,
-        )
-    return RedirectResponse(
-        "/settings?msg=No+changes+to+save.#weekly-reports",
-        status_code=303,
-    )
+        return _settings_redirect("weekly", msg="Weekly focus saved.")
+    return _settings_redirect("weekly", msg="No changes to save.")
 
 
 @router.post("/settings/voice")
@@ -937,8 +857,6 @@ def save_voice_settings(
     tts_provider: str = Form(""),
     voice_id: str = Form(""),
     voice_model: str = Form("eleven_v3"),
-    voice_language: str = Form(""),
-    voice_accent: str = Form(""),
     voice_randomize: str | None = Form(None),
     speechify_emotion: str = Form(""),
 ):
@@ -952,54 +870,29 @@ def save_voice_settings(
     )
     settings.tts_provider = new_provider.value
 
-    message = "Narrator+voice+saved."
+    message = "Narrator voice saved."
     if new_provider != previous_provider:
         # The submitted voice/model belong to the old service — start from the
         # new service's defaults and let the reloaded page offer its voices.
         settings.voice_id = DEFAULT_VOICE_IDS[new_provider]
         settings.voice_model = DEFAULT_VOICE_MODELS[new_provider]
-        message = "Narration+service+changed.+Pick+a+voice+from+the+updated+list+below."
+        message = "Narration service changed. Pick a voice from the updated list."
     else:
         settings.voice_id = voice_id.strip() or settings.voice_id
         settings.voice_model = normalize_voice_model(
             new_provider, voice_model.strip() or settings.voice_model
         )
-    settings.voice_language = voice_language.strip().lower()
-    settings.voice_accent = voice_accent.strip().lower()
     settings.voice_randomize = voice_randomize is not None
     if new_provider is TtsProviderId.speechify:
         settings.speechify_emotion = normalize_speechify_emotion(speechify_emotion)
     settings.updated_at = utcnow()
     session.add(settings)
     session.commit()
-    return RedirectResponse(f"/settings?msg={message}#voice", status_code=303)
+    return _settings_redirect("voice", msg=message)
 
 
-@router.post("/settings/episode-length")
-def save_episode_length_settings(
-    user: User = Depends(web_user),
-    session: Session = Depends(get_session),
-    max_article_length: int = Form(6000),
-    target_minutes_min: float = Form(1.5),
-    target_minutes_max: float = Form(3.0),
-):
-    settings = get_settings(session)
-    if target_minutes_max < target_minutes_min:
-        return RedirectResponse(
-            "/settings?err=The+longest+length+can't+be+shorter+than+the+shortest.+Swap+the+two+numbers+and+try+again.#length",
-            status_code=303,
-        )
-    settings.max_article_length = max(500, max_article_length)
-    settings.target_minutes_min = max(0.5, target_minutes_min)
-    settings.target_minutes_max = target_minutes_max
-    settings.updated_at = utcnow()
-    session.add(settings)
-    session.commit()
-    return RedirectResponse("/settings?msg=Episode+length+saved.#length", status_code=303)
-
-
-@router.post("/settings/podcast-app")
-def save_podcast_app_settings(
+@router.post("/settings/feed")
+def save_feed_settings(
     user: User = Depends(web_user),
     session: Session = Depends(get_session),
     podcast_title: str = Form("Morning News"),
@@ -1013,7 +906,7 @@ def save_podcast_app_settings(
     settings.updated_at = utcnow()
     session.add(settings)
     session.commit()
-    return RedirectResponse("/settings?msg=Podcast+details+saved.#podcast-app", status_code=303)
+    return _settings_redirect("feed", msg="Podcast details saved.")
 
 
 @router.post("/settings/writer")
@@ -1024,78 +917,60 @@ def save_writer_settings(
     llm_model: str = Form("openai/gpt-4o-mini"),
 ):
     settings = get_settings(session)
+    fallback = resolve_provider(
+        credentials=load_credentials(settings),
+        settings_provider=settings.llm_provider,
+        settings_model=settings.llm_model,
+    )
     try:
-        provider_id = LlmProviderId((llm_provider or settings.llm_provider or resolve_provider(
-            credentials=load_credentials(settings),
-            settings_provider=settings.llm_provider,
-            settings_model=settings.llm_model,
-        )).strip().lower())
-    except ValueError:
-        provider_id = resolve_provider(
-            credentials=load_credentials(settings),
-            settings_provider=settings.llm_provider,
-            settings_model=settings.llm_model,
+        provider_id = LlmProviderId(
+            (llm_provider or settings.llm_provider or fallback).strip().lower()
         )
+    except ValueError:
+        provider_id = fallback
     settings.llm_provider = provider_id.value
     settings.llm_model = normalize_model(provider_id, llm_model.strip() or settings.llm_model)
     settings.updated_at = utcnow()
     session.add(settings)
     session.commit()
-    return RedirectResponse("/settings/plumbing?msg=Script+writer+saved.#writer", status_code=303)
+    return _settings_redirect("connections", msg="Script writer saved.")
 
 
-@router.post("/settings/intro")
-async def save_intro(
+@router.post("/settings/music")
+async def save_music(
     user: User = Depends(web_user),
     session: Session = Depends(get_session),
     intro: UploadFile | None = File(None),
-    intro_enabled: str | None = Form(None),
-    intro_play_seconds: float = Form(6.0),
-):
-    settings = get_settings(session)
-    settings.intro_enabled = intro_enabled is not None
-    settings.intro_play_seconds = max(0.0, intro_play_seconds)
-    settings.updated_at = utcnow()
-
-    message = "Intro+settings+saved."
-    if intro is not None and intro.filename:
-        data = await intro.read()
-        if not data:
-            return RedirectResponse("/settings?err=That+file+was+empty.+Choose+a+different+MP3+and+try+again.#music", status_code=303)
-        with open(config.intro_path, "wb") as handle:
-            handle.write(data)
-        message = "Intro+music+uploaded.+It+will+play+before+the+next+episode."
-
-    session.add(settings)
-    session.commit()
-    return RedirectResponse(f"/settings?msg={message}#music", status_code=303)
-
-
-@router.post("/settings/outro")
-async def save_outro(
-    user: User = Depends(web_user),
-    session: Session = Depends(get_session),
     outro: UploadFile | None = File(None),
-    outro_enabled: str | None = Form(None),
+    intro_play_seconds: float = Form(6.0),
     outro_play_seconds: float = Form(2.0),
+    remove_intro: str | None = Form(None),
+    remove_outro: str | None = Form(None),
 ):
     settings = get_settings(session)
-    settings.outro_enabled = outro_enabled is not None
+    settings.intro_play_seconds = max(0.0, intro_play_seconds)
     settings.outro_play_seconds = max(0.0, outro_play_seconds)
     settings.updated_at = utcnow()
 
-    message = "Outro+settings+saved."
-    if outro is not None and outro.filename:
-        data = await outro.read()
+    for upload, remove, path, name in (
+        (intro, remove_intro, config.intro_path, "Intro"),
+        (outro, remove_outro, config.outro_path, "Outro"),
+    ):
+        if remove is not None:
+            path.unlink(missing_ok=True)
+            continue
+        if upload is None or not upload.filename:
+            continue
+        data = await upload.read()
         if not data:
-            return RedirectResponse("/settings?err=That+file+was+empty.+Choose+a+different+MP3+and+try+again.#music", status_code=303)
-        with open(config.outro_path, "wb") as handle:
-            handle.write(data)
-        message = "Outro+music+uploaded.+It+will+play+after+the+next+episode."
+            return _settings_redirect(
+                "music", err=f"That {name.lower()} file was empty. Choose a different MP3."
+            )
+        path.write_bytes(data)
 
     session.add(settings)
     session.commit()
-    return RedirectResponse(f"/settings?msg={message}#music", status_code=303)
+    return _settings_redirect("music", msg="Music saved.")
 
 
 @router.post("/sources")
@@ -1107,19 +982,19 @@ def add_source(
     session: Session = Depends(get_session),
 ):
     url = url.strip()
-    message = "News+feed+added."
+    message = "News feed added."
     if url:
         feed_url, is_feed = news.resolve_feed_url(url)
         if feed_url != url:
-            message = quote_plus(f"News feed added — using the feed found at {feed_url}.")
+            message = f"News feed added — using the feed found at {feed_url}."
         elif not is_feed:
-            message = quote_plus(
+            message = (
                 "Feed added, but that link doesn't look like an RSS feed "
                 "and no feed was found on the page — it may return no stories."
             )
         session.add(Source(url=feed_url, name=name.strip(), priority=bool(priority)))
         session.commit()
-    return RedirectResponse(f"/settings/plumbing?msg={message}#feeds", status_code=303)
+    return _settings_redirect("feeds", msg=message)
 
 
 @router.post("/sources/{source_id}/priority")
@@ -1129,17 +1004,17 @@ def toggle_source_priority(
     session: Session = Depends(get_session),
 ):
     source = session.get(Source, source_id)
-    message = "News+feed+not+found."
+    message = "News feed not found."
     if source is not None:
         source.priority = not source.priority
         session.add(source)
         session.commit()
         message = (
-            "Feed+stories+will+always+be+included."
+            "Feed stories will always be included."
             if source.priority
-            else "Feed+returned+to+normal+priority."
+            else "Feed returned to normal priority."
         )
-    return RedirectResponse(f"/settings/plumbing?msg={message}#feeds", status_code=303)
+    return _settings_redirect("feeds", msg=message)
 
 
 @router.post("/sources/{source_id}/delete")
@@ -1152,7 +1027,7 @@ def delete_source(
     if source is not None:
         session.delete(source)
         session.commit()
-    return RedirectResponse("/settings/plumbing?msg=News+feed+deleted.#feeds", status_code=303)
+    return _settings_redirect("feeds", msg="News feed deleted.")
 
 
 @router.post("/preferences")
@@ -1163,14 +1038,10 @@ def add_preference(
 ):
     topics = _split_comma_list(topic)
     if not topics:
-        return RedirectResponse(
-            "/settings?err=Enter+at+least+one+topic.",
-            status_code=303,
-        )
+        return _settings_redirect("skip", err="Enter at least one topic.")
 
     existing_topics = {
-        preference.topic.casefold()
-        for preference in session.exec(select(Preference)).all()
+        preference.topic.casefold() for preference in session.exec(select(Preference)).all()
     }
 
     added: list[str] = []
@@ -1186,22 +1057,24 @@ def add_preference(
         session.commit()
 
     if not added:
-        err = (
-            "That+topic+is+already+on+the+skip+list."
-            if len(topics) == 1
-            else "Those+topics+are+already+on+the+skip+list."
+        return _settings_redirect(
+            "skip",
+            err=(
+                "That topic is already on the skip list."
+                if len(topics) == 1
+                else "Those topics are already on the skip list."
+            ),
         )
-        return RedirectResponse(f"/settings?err={err}", status_code=303)
 
     message = (
-        "Topic+added+to+the+skip+list."
+        "Topic added to the skip list."
         if len(added) == 1
-        else f"{len(added)}+topics+added+to+the+skip+list."
+        else f"{len(added)} topics added to the skip list."
     )
     skipped = len(topics) - len(added)
     if skipped:
-        message += f"+({skipped}+already+listed)"
-    return RedirectResponse(f"/settings?msg={message}", status_code=303)
+        message += f" ({skipped} already listed)"
+    return _settings_redirect("skip", msg=message)
 
 
 @router.post("/preferences/{preference_id}/delete")
@@ -1214,7 +1087,7 @@ def delete_preference(
     if preference is not None:
         session.delete(preference)
         session.commit()
-    return RedirectResponse("/settings?msg=Topic+removed+from+the+skip+list.", status_code=303)
+    return _settings_redirect("skip", msg="Topic removed from the skip list.")
 
 
 @router.post("/users")
@@ -1226,19 +1099,21 @@ def add_user(
 ):
     username = username.strip()
     if not username or not password:
-        return RedirectResponse("/settings/household?err=Enter+a+username+and+password+for+the+new+person.", status_code=303)
-    existing = session.exec(select(User).where(User.username == username)).first()
-    if existing is not None:
-        return RedirectResponse("/settings/household?err=That+username+is+already+in+use.+Try+a+different+one.", status_code=303)
+        return _settings_redirect(
+            "household", err="Enter a username and password for the new person."
+        )
+    if session.exec(select(User).where(User.username == username)).first() is not None:
+        return _settings_redirect(
+            "household", err="That username is already in use. Try a different one."
+        )
     create_user(session, username, password)
-    return RedirectResponse("/settings/household?msg=Household+member+added.", status_code=303)
+    return _settings_redirect("household", msg="Household member added.")
 
 
 def _weekly_report_map(session: Session) -> dict[int, WeeklyReport]:
     """Return a {day_of_week: WeeklyReport} map covering all 7 days."""
 
-    rows = session.exec(select(WeeklyReport)).all()
-    by_day = {row.day_of_week: row for row in rows}
+    by_day = {row.day_of_week: row for row in session.exec(select(WeeklyReport)).all()}
     for day in range(7):
         if day not in by_day:
             by_day[day] = WeeklyReport(day_of_week=day, report_type="", user_input="")
@@ -1249,8 +1124,6 @@ def _safe_list_voices(settings, credentials):
     try:
         return list_voice_options(
             get_provider(credentials=credentials, settings_provider=settings.tts_provider),
-            voice_language=settings.voice_language,
-            voice_accent=settings.voice_accent,
             news_hl=settings.news_hl,
         )
     except Exception as error:
@@ -1258,23 +1131,9 @@ def _safe_list_voices(settings, credentials):
         return []
 
 
-def _safe_list_accents(settings, credentials):
-    try:
-        return list_accent_options(
-            get_provider(credentials=credentials, settings_provider=settings.tts_provider),
-            voice_language=settings.voice_language,
-            news_hl=settings.news_hl,
-        )
-    except Exception as error:
-        logger.info("Accent listing unavailable: %s", error)
-        return []
-
-
 def _parse_time(value: str) -> tuple[int, int]:
     try:
         hour_text, minute_text = value.split(":", 1)
-        hour = max(0, min(23, int(hour_text)))
-        minute = max(0, min(59, int(minute_text)))
-        return hour, minute
+        return max(0, min(23, int(hour_text))), max(0, min(59, int(minute_text)))
     except (ValueError, AttributeError):
         return 7, 0

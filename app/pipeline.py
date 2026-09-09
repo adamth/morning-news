@@ -31,7 +31,6 @@ from .db import (
     get_settings,
     utcnow,
 )
-from .news_categories import format_priorities, parse_selected
 from .report_types import REPORT_TYPES, WEEKDAY_LABELS, get_report_type, is_special
 from .sources import news, weather
 from .sources.calendar import CalendarEvent, CalendarSource, fetch_all_events
@@ -57,6 +56,9 @@ COVERED_ITEMS_PROMPT_LIMIT = 750
 
 MARKET_COMMENTS_PROMPT_LIMIT = 180
 """Cap on the past market asides sent to the LLM — well over half a year of trading days."""
+
+ARTICLE_BODY_CHAR_LIMIT = 6000
+"""Source articles are trimmed to this before drafting, to keep the prompt affordable."""
 
 WEATHER_COMMENTS_PROMPT_LIMIT = 180
 """Cap on the past weather remarks sent to the LLM — about half a year of episodes."""
@@ -249,7 +251,7 @@ def _run(
                     "Fetch watchlist quotes",
                     status="success" if gathered.market_text else "error",
                     summary=gathered.market_text or "No quotes returned",
-                    request={"symbols": stock_symbols, "mature_reactions": settings.stocks_mature_reactions},
+                    request={"symbols": stock_symbols},
                     response={
                         "text": gathered.market_text or None,
                         "reaction_hint": gathered.market_reaction or None,
@@ -350,7 +352,6 @@ def _run(
         locality=settings.locality,
         target_min=settings.target_minutes_min,
         target_max=settings.target_minutes_max,
-        priorities_text=format_priorities(parse_selected(settings.preferred_categories)),
         excluded_topics=excluded_topics,
         weather_text=weather_text,
         market_text=market_text,
@@ -459,8 +460,6 @@ def _run(
         provider,
         voice_id=settings.voice_id,
         voice_randomize=settings.voice_randomize,
-        voice_language=settings.voice_language,
-        voice_accent=settings.voice_accent,
         news_hl=settings.news_hl,
         date_text=date_text,
     )
@@ -493,8 +492,8 @@ def _run(
     speed_up_narration(voice_path)
 
     # 10. Assemble with intro/outro music + normalize.
-    intro = config.intro_path if (settings.intro_enabled and config.intro_path.exists()) else None
-    outro = config.outro_path if (settings.outro_enabled and config.outro_path.exists()) else None
+    intro = config.intro_path if config.intro_path.exists() else None
+    outro = config.outro_path if config.outro_path.exists() else None
     timer = LogTimer.start()
     assemble_episode(
         voice_path,
@@ -584,7 +583,6 @@ def _gather_source_data(
             settings.latitude,
             settings.longitude,
             settings.timezone,
-            provider=settings.weather_provider,
             weatherapi_api_key=credentials.weatherapi_api_key,
         )
         return (summary.text, summary) if summary else ("", None)
@@ -592,11 +590,7 @@ def _gather_source_data(
     def fetch_stocks() -> tuple[str, str]:
         if not settings.stocks_enabled or not stock_symbols:
             return "", ""
-        summary = stocks.get_market_summary(
-            stock_symbols,
-            credentials=credentials,
-            mature_reactions=settings.stocks_mature_reactions,
-        )
+        summary = stocks.get_market_summary(stock_symbols, credentials=credentials)
         if summary is None:
             return "", ""
         return summary.text, summary.reaction_hint
@@ -888,7 +882,7 @@ def _summarize_long_articles(
     settings: Settings,
     credentials: Credentials,
 ) -> None:
-    limit = settings.max_article_length
+    limit = ARTICLE_BODY_CHAR_LIMIT
     audit = active_log()
     for article in articles:
         body = article.body

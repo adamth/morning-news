@@ -65,22 +65,11 @@ def weatherapi_configured(weatherapi_api_key: str | None) -> bool:
     return bool(weatherapi_api_key and weatherapi_api_key.strip())
 
 
-def parse_weather_provider(value: str | None) -> WeatherProviderId | None:
-    if not value or not value.strip():
-        return None
-    normalized = value.strip().lower()
-    if normalized == "metno":
-        return WeatherProviderId.open_meteo
-    try:
-        return WeatherProviderId(normalized)
-    except ValueError:
-        return None
+def resolve_weather_provider(weatherapi_api_key: str | None = None) -> WeatherProviderId:
+    """WeatherAPI.com when its key is saved, otherwise the keyless Open-Meteo."""
 
-
-def resolve_weather_provider(settings_provider: str = "") -> WeatherProviderId:
-    explicit = parse_weather_provider(settings_provider)
-    if explicit is not None:
-        return explicit
+    if weatherapi_configured(weatherapi_api_key):
+        return WeatherProviderId.weatherapi
     return WeatherProviderId.open_meteo
 
 

@@ -1,804 +1,901 @@
 {% extends "base.html" %}
-{% block title %}Your show - Morning News{% endblock %}
+{% block title %}Settings - Morning News{% endblock %}
+
+{% macro api_key(field, label, hint, saved, from_env, stored, blurb, placeholder) %}
+<div class="key{% if saved %} key-saved{% endif %}" id="{{ field }}">
+  <label for="{{ field }}_api_key">
+    {{ label }}
+    {% if saved %}
+    <span class="key-status key-status-saved">Saved</span>
+    {% if from_env %}<span class="key-status key-status-env">from server config</span>{% endif %}
+    {% endif %}
+  </label>
+  <input
+    type="password"
+    id="{{ field }}_api_key"
+    name="{{ field }}_api_key"
+    autocomplete="new-password"
+    placeholder="{% if saved and not from_env %}Leave blank to keep the saved key{% else %}{{ placeholder }}{% endif %}"
+  />
+  <div class="field-hint">{{ blurb }} {{ hint | safe }}</div>
+  {% if stored and not from_env %}
+  <label class="checkbox-inline key-clear">
+    <input type="checkbox" name="clear_{{ field }}" value="1" /> Delete the saved {{ label }}
+  </label>
+  {% endif %}
+</div>
+{% endmacro %}
+
 {% block content %}
-<header class="settings-header">
+<header class="page-head">
   <h1>Settings</h1>
   <p class="page-lead">
-    What your episode covers, how it sounds, and when it's ready. Changes here apply to the whole show.
+    Everything that shapes the show, on one page. Set it once; the daily build takes it from here.
   </p>
 </header>
 
-{% include "partials/settings_tabs.html" %}
 {% include "partials/setup_checklist.html" %}
 
-<section class="section">
-  <form method="post" action="/settings" class="settings-form" id="schedule">
-    <div class="settings-group">
-      <h2 class="settings-heading">
-        <span class="settings-heading-title">Schedule &amp; location</span>
-      </h2>
-      <div class="settings-fields">
-        <div class="field-row">
-          <div>
-            <label for="schedule_time">Build time</label>
-            <input type="time" id="schedule_time" name="schedule_time" value="{{ '%02d:%02d' % (s.schedule_hour, s.schedule_minute) }}" />
-            <div class="field-hint">Morning News builds a new episode every day at this time.</div>
-          </div>
-          <div>
-            <label for="timezone">Time zone</label>
-            <input type="text" id="timezone" name="timezone" value="{{ s.timezone }}" placeholder="Australia/Brisbane" />
-            <div class="field-hint">{% if s.locality %}Used with your town for the daily schedule.{% else %}Fills in automatically when you choose your town below.{% endif %}</div>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <label for="address">Your town</label>
-          <div class="location-field">
-            <input
-              type="text"
-              id="address"
-              name="address"
-              value="{{ s.address }}"
-              data-initial-address="{{ s.address }}"
-              placeholder="Start typing, then pick from the list — e.g. Brisbane"
-              autocomplete="off"
-            />
-            <div id="location-suggestions" class="location-suggestions" hidden></div>
-          </div>
-          <input type="hidden" name="location_confirmed" id="location_confirmed" value="{{ '1' if s.latitude else '' }}" />
-          <input type="hidden" name="latitude" id="latitude" value="{{ s.latitude if s.latitude is not none else '' }}" />
-          <input type="hidden" name="longitude" id="longitude" value="{{ s.longitude if s.longitude is not none else '' }}" />
-          <input type="hidden" name="locality" id="locality" value="{{ s.locality }}" />
-          <input type="hidden" name="country_code" id="country_code" value="" />
-          <input type="hidden" name="admin1" id="admin1" value="{{ s.admin1 }}" />
-          <input type="hidden" name="country" id="country" value="{{ s.country }}" />
-          <input type="hidden" name="news_hl" id="news_hl" value="{{ s.news_hl }}" />
-          <input type="hidden" name="news_gl" id="news_gl" value="{{ s.news_gl }}" />
-          <input type="hidden" name="news_ceid" id="news_ceid" value="{{ s.news_ceid }}" />
-          <div class="field-hint" id="location-status">
-            {% if s.locality %}
-              Weather and local news will use {{ s.locality }} ({{ s.timezone }}).
-            {% else %}
-              Type a few letters, choose your town from the list, then save — typing alone is not enough.
-            {% endif %}
-          </div>
-        </div>
-
-        <label class="checkbox-inline">
-          <input type="checkbox" name="weather_enabled" value="1" {{ 'checked' if s.weather_enabled else '' }}>
-          Include today's weather in the episode
-        </label>
-
-        <div class="settings-field">
-          <label for="weather_provider">Weather source</label>
-          <select id="weather_provider" name="weather_provider">
-            {% for option in weather_provider_options %}
-            <option value="{{ option.id }}" {{ 'selected' if option.id == weather_provider else '' }}>
-              {{ option.label }}{% if option.id == 'weatherapi' and not option.configured %} (add key in Connections first){% endif %}
-            </option>
-            {% endfor %}
-          </select>
-          <div class="field-hint">
-            WeatherAPI.com is often the most accurate and has a generous free tier — add a key in
-            <a href="/settings/plumbing#keys">Settings → Connections</a>.
-            Open-Meteo needs no key.
-          </div>
-        </div>
-      </div>
-
-      <div class="form-actions">
-        <button type="submit">Save schedule &amp; location</button>
-      </div>
-    </div>
-  </form>
-
-  <hr class="settings-divider" />
-
-  <form method="post" action="/settings/story-mix" class="settings-form" id="story-mix">
-    <div class="settings-group">
-      <h2 class="settings-heading">
-        <span class="settings-heading-title">Story mix</span>
-      </h2>
-      <p class="field-hint settings-group-lead">Tick topics you'd like the show to favour. These are gentle preferences, not rules — to block a subject entirely, use <a href="#topics-to-skip">Topics to skip</a> below.</p>
-      <div class="category-grid">
-        {% for category in news_categories %}
-        <label class="category-option">
-          <input
-            type="checkbox"
-            name="preferred_categories"
-            value="{{ category.id }}"
-            {{ 'checked' if category.id in selected_categories else '' }}
-          />
-          <span>{{ category.label }}</span>
-        </label>
-        {% endfor %}
-      </div>
-      <div class="form-actions">
-        <button type="submit">Save story mix</button>
-      </div>
-    </div>
-  </form>
-
-  <hr class="settings-divider" />
-
-  <form method="post" action="/settings/weekly-reports" class="settings-form" id="weekly-reports">
-    <div class="settings-group">
-      <h2 class="settings-heading">
-        <span class="settings-heading-title">Weekly reports</span>
-        <span class="settings-tag settings-tag-optional">Optional</span>
-      </h2>
-      <p class="field-hint settings-group-lead">
-        Give certain weekdays their own focus. A day set to <em>Regular news</em> behaves as usual;
-        picking a report type swaps the news section for that day's special segment — book or film
-        suggestions, a true story, a deep dive on one story, or a short reflection. Weather, the
-        calendar, and personal messages still play as normal.
-      </p>
-      <div class="weekly-reports-list">
-        {% for day_index in range(7) %}
-        {% set report = weekly_reports[day_index] %}
-        <div class="weekly-report-row" data-day="{{ day_index }}">
-          <div class="weekly-report-day">{{ weekly_report_days[day_index] }}</div>
-          <div class="weekly-report-fields">
-            <div class="weekly-report-type">
-              <label class="sr-only" for="weekly_report_type_{{ day_index }}">{{ weekly_report_days[day_index] }} report type</label>
-              <select
-                id="weekly_report_type_{{ day_index }}"
-                name="report_type"
-                class="weekly-report-select"
-                data-day="{{ day_index }}"
-              >
-                <option value="" {{ 'selected' if not report.report_type else '' }}>Regular news</option>
-                {% for rt in report_type_options %}
-                <option value="{{ rt.id }}" {{ 'selected' if report.report_type == rt.id else '' }}>
-                  {{ rt.label }}
-                </option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="weekly-report-input">
-              <label class="sr-only" for="weekly_report_input_{{ day_index }}">{{ weekly_report_days[day_index] }} notes</label>
-              <textarea
-                id="weekly_report_input_{{ day_index }}"
-                name="user_input"
-                class="weekly-report-textarea"
-                rows="2"
-                placeholder="Notes for this report type appear here once you pick one above."
-              >{{ report.user_input }}</textarea>
-            </div>
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-      <div class="field-hint">Notes are saved per day, so you can switch a day off and back on without losing what you wrote.</div>
-      <div class="form-actions">
-        <button type="submit">Save weekly reports</button>
-      </div>
-    </div>
-  </form>
-
-  <hr class="settings-divider" />
-
-  <div class="settings-form">
-    <div class="settings-group" id="topics-to-skip">
-      <h2 class="settings-heading">
-        <span class="settings-heading-title">Topics to skip</span>
-        {% if preferences %}
-        <span class="settings-tag settings-tag-count">{{ preferences|length }} topic{{ 's' if preferences|length != 1 else '' }}</span>
-        {% endif %}
-      </h2>
-      <p class="field-hint settings-group-lead">Stories mainly about these subjects are left out of everyone's episode.</p>
-      <form method="post" action="/preferences" class="inline-form">
-        <div class="inline-form-grow">
-          <label for="exclude-topic">Topics to skip</label>
-          <input type="text" id="exclude-topic" name="topic" placeholder="politics, sports, crime" required />
-        </div>
-        <button type="submit" class="btn btn-sm">Add topics</button>
-      </form>
-      <p class="field-hint">Separate multiple topics with commas.</p>
-      {% if preferences %}
-      <div class="flex flex-wrap gap-x-6 gap-y-2">
-        {% for pref in preferences %}
-        <span class="chip">{{ pref.topic }}
-          <form method="post" action="/preferences/{{ pref.id }}/delete">
-            <button type="submit" aria-label="Remove {{ pref.topic }} from skip list">&times;</button>
-          </form>
-        </span>
-        {% endfor %}
-      </div>
-      {% else %}
-      <p class="text-sm text-muted">Nothing skipped yet — add a topic above if you want the show to avoid certain subjects.</p>
+<div class="settings-layout">
+  <nav class="settings-rail" aria-label="Settings sections">
+    {% for anchor, label in sections %}
+    <a href="#{{ anchor }}" class="rail-link" data-rail-target="{{ anchor }}">
+      {{ label }}
+      {% if anchor == 'health' and report.has_issues %}
+      <span class="rail-badge" aria-label="{{ report.issue_count }} issue{{ 's' if report.issue_count != 1 else '' }}">{{ report.issue_count }}</span>
       {% endif %}
-    </div>
-  </div>
+    </a>
+    {% endfor %}
+  </nav>
 
-  <hr class="settings-divider" />
+  <div class="settings-sections" data-track-changes>
+    <!-- ============ SCHEDULE ============ -->
+    <section class="card settings-section" id="schedule">
+      <div class="settings-section-head">
+        <h2 class="settings-section-title">Schedule</h2>
+      </div>
+      <p class="settings-section-lead">When the episode builds, where it's about, and how long it runs.</p>
+      <div class="settings-group">
+        <form method="post" action="/settings">
+          <div class="settings-fields">
+            <div class="settings-field">
+              <label for="address">Your town</label>
+              <div class="location-field">
+                <input
+                  type="text"
+                  id="address"
+                  name="address"
+                  value="{{ s.address }}"
+                  data-initial-address="{{ s.address }}"
+                  placeholder="Start typing, then pick from the list — e.g. Brisbane"
+                  autocomplete="off"
+                />
+                <div id="location-suggestions" class="location-suggestions" hidden></div>
+              </div>
+              <input type="hidden" name="location_confirmed" id="location_confirmed" value="{{ '1' if s.latitude else '' }}" />
+              <input type="hidden" name="latitude" id="latitude" value="{{ s.latitude if s.latitude is not none else '' }}" />
+              <input type="hidden" name="longitude" id="longitude" value="{{ s.longitude if s.longitude is not none else '' }}" />
+              <input type="hidden" name="locality" id="locality" value="{{ s.locality }}" />
+              <input type="hidden" name="country_code" id="country_code" value="" />
+              <input type="hidden" name="admin1" id="admin1" value="{{ s.admin1 }}" />
+              <input type="hidden" name="country" id="country" value="{{ s.country }}" />
+              <input type="hidden" name="news_hl" id="news_hl" value="{{ s.news_hl }}" />
+              <input type="hidden" name="news_gl" id="news_gl" value="{{ s.news_gl }}" />
+              <input type="hidden" name="news_ceid" id="news_ceid" value="{{ s.news_ceid }}" />
+              <div class="field-hint" id="location-status">
+                Sets your weather, local headlines, time zone, and the narrator's language.
+              </div>
+            </div>
 
-  <form method="post" action="/settings/voice" class="settings-form" id="voice">
-    <div class="settings-group">
-      <h2 class="settings-heading">
-        <span class="settings-heading-title">Narrator voice</span>
-      </h2>
-      <div class="settings-fields">
-        <div class="settings-field">
-          <label for="tts_provider">Narration service</label>
-          <select id="tts_provider" name="tts_provider">
-            {% for option in tts_provider_options %}
-            <option value="{{ option.id }}" {{ 'selected' if option.id == tts_provider else '' }}>
-              {{ option.label }}{% if not option.configured %} (add key on Plumbing first){% endif %}
-            </option>
+            <div class="field-row">
+              <div>
+                <label for="schedule_time">Build time</label>
+                <input type="time" id="schedule_time" name="schedule_time" value="{{ '%02d:%02d' % (s.schedule_hour, s.schedule_minute) }}" />
+                <div class="field-hint">A new episode every day at this time.</div>
+              </div>
+              <div>
+                <label for="timezone">Time zone</label>
+                <input type="text" id="timezone" name="timezone" value="{{ s.timezone }}" placeholder="Australia/Brisbane" />
+                <div class="field-hint">{% if s.locality %}Filled in from your town.{% else %}Fills in when you pick your town.{% endif %}</div>
+              </div>
+            </div>
+
+            <div class="field-row">
+              <div>
+                <label for="target_minutes_min">Shortest episode</label>
+                <input type="number" step="0.1" min="0.5" id="target_minutes_min" name="target_minutes_min" value="{{ s.target_minutes_min }}" />
+                <div class="field-hint">Minutes.</div>
+              </div>
+              <div>
+                <label for="target_minutes_max">Longest episode</label>
+                <input type="number" step="0.1" min="0.5" id="target_minutes_max" name="target_minutes_max" value="{{ s.target_minutes_max }}" />
+                <div class="field-hint">Minutes. The writer aims between these two.</div>
+              </div>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit">Save schedule</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- ============ IN THE SHOW ============ -->
+    <section class="card settings-section" id="content">
+      <div class="settings-section-head">
+        <h2 class="settings-section-title">In the show</h2>
+      </div>
+      <p class="settings-section-lead">
+        Local headlines are always included. These are the extra segments and the things to leave out.
+      </p>
+
+      <div class="settings-group">
+        <form method="post" action="/settings/content">
+          <div class="settings-fields">
+            <label class="checkbox-row">
+              <input type="checkbox" name="weather_enabled" value="1" {{ 'checked' if s.weather_enabled else '' }} />
+              <span class="checkbox-row-body">
+                <span class="checkbox-row-title">Today's weather</span>
+                <span class="checkbox-row-hint">
+                  Forecast for your town. Free with no key needed; add a
+                  <a href="#weatherapi">WeatherAPI.com key</a> and it uses that instead.
+                </span>
+              </span>
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" name="stocks_enabled" value="1" {{ 'checked' if s.stocks_enabled else '' }} />
+              <span class="checkbox-row-body">
+                <span class="checkbox-row-title">Stock watch</span>
+                <span class="checkbox-row-hint">
+                  One line on how your watchlist moved overnight, never a per-stock rundown.
+                  Needs a <a href="#finnhub">Finnhub key</a>.
+                </span>
+              </span>
+            </label>
+          </div>
+          <div class="form-actions">
+            <button type="submit">Save segments</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="settings-group" id="calendars">
+        <h3 class="settings-group-title">
+          Calendars
+          {% if calendars %}<span class="tag tag-count">{{ calendars|length }}</span>{% endif %}
+          <span class="tag tag-optional">Optional</span>
+        </h3>
+        <p class="settings-group-lead">
+          Today's events, read out by name. Add as many as you like — a personal one, a work one,
+          the kids' school — and name each so the episode can say whose day it is.
+        </p>
+        <form method="post" action="/calendars">
+          <div class="inline-form">
+            <div>
+              <label for="calendar_label">Name</label>
+              <input type="text" id="calendar_label" name="label" placeholder="Work" />
+            </div>
+            <div class="inline-form-grow">
+              <label for="calendar_url">Calendar link</label>
+              <input type="url" id="calendar_url" name="url" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" required />
+            </div>
+            <button type="submit" class="btn btn-sm">Add</button>
+          </div>
+          <div class="field-hint mt-2">
+            A subscription link, usually ending in <code class="code-inline">.ics</code>. In Google Calendar:
+            calendar settings → <strong>Integrate calendar</strong> → secret address. In iCloud:
+            <strong>Share Calendar</strong> → <strong>Public Calendar</strong>.
+          </div>
+        </form>
+        {% if calendars %}
+        <ul class="rows mt-5">
+          {% for calendar in calendars %}
+          <li class="row">
+            <div>
+              <div class="text-sm font-medium">
+                {{ calendar.label or 'Unnamed calendar' }}
+                {% if not calendar.enabled %}<span class="tag tag-count">Off</span>{% endif %}
+              </div>
+              <div class="row-meta">{{ calendar.url }}</div>
+            </div>
+            <div class="row-actions">
+              <form method="post" action="/calendars/{{ calendar.id }}/toggle">
+                <button class="btn btn-secondary btn-sm" type="submit">
+                  {{ 'Turn on' if not calendar.enabled else 'Turn off' }}<span class="sr-only"> {{ calendar.label or calendar.url }}</span>
+                </button>
+              </form>
+              <form
+                method="post"
+                action="/calendars/{{ calendar.id }}/delete"
+                data-confirm="Remove the calendar {{ calendar.label or calendar.url }}? You'll need its link to add it back."
+              >
+                <button class="btn btn-danger btn-sm" type="submit">Remove<span class="sr-only"> {{ calendar.label or calendar.url }}</span></button>
+              </form>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty-note mt-4">No calendars yet — add one and the episode will run through today's events.</p>
+        {% endif %}
+      </div>
+
+      <div class="settings-group" id="stocks">
+        <h3 class="settings-group-title">
+          Watchlist
+          {% if watchlist %}<span class="tag tag-count">{{ watchlist|length }}</span>{% endif %}
+        </h3>
+        <p class="settings-group-lead">
+          The tickers behind the stock watch line. Examples: AAPL, MSFT, TSLA, ^GSPC (S&amp;P 500), ^FTSE.
+        </p>
+        <form id="add-watchlist-form" method="post" action="/watchlist" hidden></form>
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Ticker</th>
+                <th scope="col">Label</th>
+                <th scope="col" class="data-table-actions"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in watchlist %}
+              <tr>
+                <td><code class="code-inline">{{ item.symbol }}</code></td>
+                <td>{{ item.label or '—' }}</td>
+                <td class="data-table-actions">
+                  <form method="post" action="/watchlist/{{ item.id }}/delete" data-confirm="Remove {{ item.symbol }} from your watchlist?">
+                    <button class="btn btn-danger btn-sm" type="submit">Remove<span class="sr-only"> {{ item.symbol }}</span></button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr class="data-table-empty"><td colspan="3">No stocks yet — add a ticker below.</td></tr>
+              {% endfor %}
+              <tr class="data-table-add-row">
+                <td>
+                  <label class="sr-only" for="stock_symbol">Ticker</label>
+                  <input type="text" id="stock_symbol" form="add-watchlist-form" name="symbol" placeholder="AAPL, MSFT" required />
+                </td>
+                <td>
+                  <label class="sr-only" for="stock_label">Label</label>
+                  <input type="text" id="stock_label" form="add-watchlist-form" name="label" placeholder="Optional label" />
+                </td>
+                <td class="data-table-actions">
+                  <button type="submit" form="add-watchlist-form" class="btn btn-sm">Add</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="field-hint mt-2">Separate several tickers with commas.</div>
+      </div>
+
+      <div class="settings-group" id="skip">
+        <h3 class="settings-group-title">
+          Topics to skip
+          {% if preferences %}<span class="tag tag-count">{{ preferences|length }}</span>{% endif %}
+        </h3>
+        <p class="settings-group-lead">Stories mainly about these subjects are left out of every episode.</p>
+        <form method="post" action="/preferences" class="inline-form">
+          <div class="inline-form-grow">
+            <label for="exclude-topic">Topics</label>
+            <input type="text" id="exclude-topic" name="topic" placeholder="politics, crime, celebrity gossip" required />
+          </div>
+          <button type="submit" class="btn btn-sm">Add</button>
+        </form>
+        <div class="field-hint mt-2">Separate several topics with commas.</div>
+        {% if preferences %}
+        <div class="chip-set">
+          {% for pref in preferences %}
+          <span class="chip">{{ pref.topic }}
+            <form method="post" action="/preferences/{{ pref.id }}/delete">
+              <button type="submit" aria-label="Remove {{ pref.topic }} from the skip list">&times;</button>
+            </form>
+          </span>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty-note mt-4">Nothing skipped yet.</p>
+        {% endif %}
+      </div>
+
+      <div class="settings-group" id="weekly">
+        <h3 class="settings-group-title">
+          Weekly focus
+          <span class="tag tag-optional">Optional</span>
+        </h3>
+        <p class="settings-group-lead">
+          Give a weekday its own segment instead of the usual news — a book or film suggestion, a
+          true story, a deep dive, a short reflection. Weather, calendar, and your messages still play.
+        </p>
+        <form method="post" action="/settings/weekly-reports">
+          <div class="weekly-list">
+            {% for day_index in range(7) %}
+            {% set report_row = weekly_reports[day_index] %}
+            <div class="weekly-row" data-day="{{ day_index }}">
+              <div class="weekly-day">{{ weekly_report_days[day_index] }}</div>
+              <div class="weekly-fields">
+                <div>
+                  <label class="sr-only" for="weekly_report_type_{{ day_index }}">{{ weekly_report_days[day_index] }} segment</label>
+                  <select id="weekly_report_type_{{ day_index }}" name="report_type" class="weekly-select" data-day="{{ day_index }}">
+                    <option value="" {{ 'selected' if not report_row.report_type else '' }}>Regular news</option>
+                    {% for rt in report_type_options %}
+                    <option value="{{ rt.id }}" {{ 'selected' if report_row.report_type == rt.id else '' }}>{{ rt.label }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="weekly-input">
+                  <label class="sr-only" for="weekly_report_input_{{ day_index }}">{{ weekly_report_days[day_index] }} notes</label>
+                  <textarea
+                    id="weekly_report_input_{{ day_index }}"
+                    name="user_input"
+                    class="weekly-textarea"
+                    rows="2"
+                  >{{ report_row.user_input }}</textarea>
+                </div>
+              </div>
+            </div>
             {% endfor %}
-          </select>
-          <div class="field-hint">
-            Which service reads the show aloud. Keys live on
-            <a href="/settings/plumbing#keys">Plumbing</a>.
-            Switching services resets the voice below to that service's default.
           </div>
-        </div>
-        <div class="field-row">
-          <div>
-            <label for="voice_language">Language</label>
-            <select id="voice_language" name="voice_language">
-              {% for code, label in voice_languages %}
-              <option value="{{ code }}" {{ 'selected' if code == s.voice_language else '' }}>{{ label }}</option>
-              {% endfor %}
-            </select>
-            <div class="field-hint">Used to filter voices and for daily rotation. “Match news language” follows your town setting above.</div>
+          <div class="field-hint mt-2">Notes are kept per day, so switching a day off and back on doesn't lose them.</div>
+          <div class="form-actions">
+            <button type="submit">Save weekly focus</button>
           </div>
-          <div>
-            <label for="voice_accent">Accent</label>
-            <select id="voice_accent" name="voice_accent">
-              <option value="" {{ 'selected' if not s.voice_accent else '' }}>Any accent</option>
-              {% for accent in voice_accents %}
-              <option value="{{ accent }}" {{ 'selected' if accent == s.voice_accent else '' }}>{{ accent.replace('-', ' ')|title }}</option>
-              {% endfor %}
-            </select>
+        </form>
+      </div>
+
+      <div class="settings-group" id="feeds">
+        <h3 class="settings-group-title">
+          Extra news sources
+          {% if sources %}<span class="tag tag-count">{{ sources|length }}</span>{% endif %}
+          <span class="tag tag-optional">Optional</span>
+        </h3>
+        <p class="settings-group-lead">Headlines for your town are already included. Add a feed only if you want more.</p>
+        <form method="post" action="/sources">
+          <div class="inline-form">
+            <div class="inline-form-grow">
+              <label for="source_url">News feed link</label>
+              <input type="url" id="source_url" name="url" placeholder="https://www.example.com/news/rss.xml" required />
+            </div>
+            <button type="submit" class="btn btn-sm">Add feed</button>
           </div>
-        </div>
-        <label class="checkbox-inline">
-          <input type="checkbox" name="voice_randomize" value="1" id="voice_randomize" {{ 'checked' if s.voice_randomize else '' }}>
-          Different narrator each day
-        </label>
-        <div class="field-hint">When enabled, each episode picks a voice from the library matching your language and accent. The voice below is a fallback if the library cannot be reached.</div>
-        <div class="field-row" id="voice-picker-row">
-          <div>
-            <label for="voice_id">Voice</label>
-            <div id="voice-id-control">
-              {% if voices %}
-              <select id="voice_id" name="voice_id">
-                {% for voice in voices %}
-                <option
-                  value="{{ voice.voice_id }}"
-                  {% if voice.preview_url %}data-preview-url="{{ voice.preview_url }}"{% endif %}
-                  {{ 'selected' if voice.voice_id == s.voice_id else '' }}
-                >
-                  {{ voice.name }}{% if voice.accent %} ({{ voice.accent.replace('-', ' ')|title }}){% endif %}
+          <label class="checkbox-inline mt-3">
+            <input type="checkbox" name="priority" value="1" />
+            Always include — for feeds that post only a few times a week
+          </label>
+        </form>
+        {% if sources %}
+        <ul class="rows mt-5">
+          {% for source in sources %}
+          <li class="row">
+            <div>
+              <div class="text-sm font-medium">
+                {{ source.name or source.url }}
+                {% if source.priority %}<span class="badge badge-ready">Always included</span>{% endif %}
+              </div>
+              <div class="row-meta">{{ source.url }}</div>
+            </div>
+            <div class="row-actions">
+              <form method="post" action="/sources/{{ source.id }}/priority">
+                <button class="btn btn-secondary btn-sm" type="submit">
+                  {{ 'Normal priority' if source.priority else 'Always include' }}<span class="sr-only"> {{ source.name or source.url }}</span>
+                </button>
+              </form>
+              <form
+                method="post"
+                action="/sources/{{ source.id }}/delete"
+                data-confirm="Delete the feed {{ source.name or source.url }}? You'll need its link to add it back."
+              >
+                <button class="btn btn-danger btn-sm" type="submit">Delete<span class="sr-only"> {{ source.name or source.url }}</span></button>
+              </form>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty-note mt-4">No extra feeds — local headlines are enough for most households.</p>
+        {% endif %}
+      </div>
+    </section>
+
+    <!-- ============ VOICE ============ -->
+    <section class="card settings-section" id="voice">
+      <div class="settings-section-head">
+        <h2 class="settings-section-title">Voice</h2>
+      </div>
+      <p class="settings-section-lead">Who reads the show. Voices are offered in the language of your town.</p>
+      <div class="settings-group">
+        <form method="post" action="/settings/voice">
+          <div class="settings-fields">
+            <div class="settings-field">
+              <label for="tts_provider">Narration service</label>
+              <select id="tts_provider" name="tts_provider">
+                {% for option in tts_provider_options %}
+                <option value="{{ option.id }}" {{ 'selected' if option.id == tts_provider else '' }}>
+                  {{ option.label }}{% if not option.configured %} (add a key first){% endif %}
                 </option>
                 {% endfor %}
               </select>
-              {% else %}
-              <input type="text" id="voice_id" name="voice_id" value="{{ s.voice_id }}" placeholder="Voice ID from your narration provider" />
-              {% endif %}
+              <div class="field-hint">
+                Keys live under <a href="#connections">Connections</a>. Switching services resets the
+                voice below to that service's default.
+              </div>
             </div>
-            <div id="voice-preview-row" class="voice-preview" hidden>
-              <audio id="voice-preview-audio" controls preload="none"></audio>
+
+            <div class="field-row" id="voice-picker-row">
+              <div>
+                <label for="voice_id">Voice</label>
+                <div id="voice-id-control">
+                  {% if voices %}
+                  <select id="voice_id" name="voice_id">
+                    {% for voice in voices %}
+                    <option
+                      value="{{ voice.voice_id }}"
+                      {% if voice.preview_url %}data-preview-url="{{ voice.preview_url }}"{% endif %}
+                      {{ 'selected' if voice.voice_id == s.voice_id else '' }}
+                    >
+                      {{ voice.name }}{% if voice.accent %} ({{ voice.accent.replace('-', ' ')|title }}){% endif %}
+                    </option>
+                    {% endfor %}
+                  </select>
+                  {% else %}
+                  <input type="text" id="voice_id" name="voice_id" value="{{ s.voice_id }}" placeholder="Voice ID from your narration provider" />
+                  {% endif %}
+                </div>
+                <div id="voice-preview-row" class="voice-preview mt-1" hidden>
+                  <audio id="voice-preview-audio" controls preload="none"></audio>
+                </div>
+                <div class="field-hint" id="voice-id-hint" {% if voices %}hidden{% endif %}>
+                  Voice names appear here once a narration key is saved under
+                  <a href="#connections">Connections</a>.
+                </div>
+              </div>
+              <div>
+                <label for="voice_model">Quality</label>
+                <select id="voice_model" name="voice_model">
+                  {% for model_id, label in voice_model_options %}
+                  <option value="{{ model_id }}" {{ 'selected' if model_id == voice_model else '' }}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+                <div class="field-hint">Best quality sounds most natural if your plan includes it.</div>
+              </div>
             </div>
-            <div class="field-hint" id="voice-id-hint" {% if voices %}hidden{% endif %}>Voice names appear here after you add a narration key on <a href="/settings/plumbing#keys">Plumbing</a>.</div>
+
+            <label class="checkbox-row">
+              <input type="checkbox" name="voice_randomize" value="1" id="voice_randomize" {{ 'checked' if s.voice_randomize else '' }} />
+              <span class="checkbox-row-body">
+                <span class="checkbox-row-title">A different narrator each day</span>
+                <span class="checkbox-row-hint">
+                  Picks from the provider's library in your language. The voice above becomes the
+                  fallback when the library can't be reached.
+                </span>
+              </span>
+            </label>
+
+            <div class="settings-field" id="speechify-tone-row" {% if tts_provider != 'speechify' %}hidden{% endif %}>
+              <label for="speechify_emotion">Tone</label>
+              <select id="speechify_emotion" name="speechify_emotion">
+                {% for emotion_id, label in speechify_emotion_options %}
+                <option value="{{ emotion_id }}" {{ 'selected' if emotion_id == speechify_emotion else '' }}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <div class="field-hint">Speechify can read with an emotional style. Natural uses the voice's own delivery.</div>
+            </div>
           </div>
-          <div>
-            <label for="voice_model">Voice quality</label>
-            <select id="voice_model" name="voice_model">
-              {% for model_id, label in voice_model_options %}
-              <option value="{{ model_id }}" {{ 'selected' if model_id == voice_model else '' }}>{{ label }}</option>
-              {% endfor %}
-            </select>
-            <div class="field-hint">Best quality sounds most natural if your plan includes it.</div>
+          <div class="form-actions">
+            <button type="submit">Save voice</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- ============ MUSIC ============ -->
+    <section class="card settings-section" id="music">
+      <div class="settings-section-head">
+        <h2 class="settings-section-title">Music</h2>
+        <span class="tag tag-optional">Optional</span>
+      </div>
+      <p class="settings-section-lead">
+        A short clip before and after the narration. Upload a file to turn it on; remove the file to turn it off.
+      </p>
+      <form method="post" action="/settings/music" enctype="multipart/form-data">
+        <div class="settings-group">
+          <h3 class="settings-group-title">
+            Intro
+            {% if intro_exists %}<span class="tag tag-ok">On file{% if intro_duration %} · {{ '%.0f'|format(intro_duration) }}s{% endif %}</span>{% endif %}
+          </h3>
+          <div class="settings-fields">
+            <div class="settings-field">
+              <label for="intro">Intro file</label>
+              <input type="file" id="intro" name="intro" accept="audio/mpeg,.mp3" />
+              <div class="field-hint">MP3. Leave blank to keep the current file.</div>
+            </div>
+            <div class="settings-field">
+              <label for="intro_play_seconds">Full volume for</label>
+              <input type="number" class="field-narrow" id="intro_play_seconds" name="intro_play_seconds" value="{{ s.intro_play_seconds }}" min="0" step="0.5" />
+              <div class="field-hint">Seconds at full volume before it fades under the voice.</div>
+            </div>
+            {% if intro_exists %}
+            <label class="checkbox-inline key-clear">
+              <input type="checkbox" name="remove_intro" value="1" /> Remove the intro file
+            </label>
+            {% endif %}
           </div>
         </div>
-        <div class="settings-field" id="speechify-tone-row" {% if tts_provider != 'speechify' %}hidden{% endif %}>
-          <label for="speechify_emotion">Tone</label>
-          <select id="speechify_emotion" name="speechify_emotion">
-            {% for emotion_id, label in speechify_emotion_options %}
-            <option value="{{ emotion_id }}" {{ 'selected' if emotion_id == speechify_emotion else '' }}>{{ label }}</option>
-            {% endfor %}
-          </select>
-          <div class="field-hint">Speechify can read the script with an emotional style. Natural uses the voice's default delivery.</div>
-        </div>
-      </div>
-      <div class="form-actions">
-        <button type="submit">Save narrator voice</button>
-      </div>
-    </div>
-  </form>
 
-  <hr class="settings-divider" />
-
-  <form method="post" action="/settings/episode-length" class="settings-form" id="length">
-    <div class="settings-group">
-      <h2 class="settings-heading">
-        <span class="settings-heading-title">Episode length</span>
-      </h2>
-      <div class="settings-fields">
-        <div class="field-row">
-          <div>
-            <label for="target_minutes_min">Shortest (minutes)</label>
-            <input type="number" step="0.1" min="0.5" id="target_minutes_min" name="target_minutes_min" value="{{ s.target_minutes_min }}" />
+        <div class="settings-group">
+          <h3 class="settings-group-title">
+            Outro
+            {% if outro_exists %}<span class="tag tag-ok">On file{% if outro_duration %} · {{ '%.0f'|format(outro_duration) }}s{% endif %}</span>{% endif %}
+          </h3>
+          <div class="settings-fields">
+            <div class="settings-field">
+              <label for="outro">Outro file</label>
+              <input type="file" id="outro" name="outro" accept="audio/mpeg,.mp3" />
+              <div class="field-hint">MP3. Leave blank to keep the current file.</div>
+            </div>
+            <div class="settings-field">
+              <label for="outro_play_seconds">Overlap with narration</label>
+              <input type="number" class="field-narrow" id="outro_play_seconds" name="outro_play_seconds" value="{{ s.outro_play_seconds }}" min="0" step="0.5" />
+              <div class="field-hint">Seconds before the narration ends that the outro starts.</div>
+            </div>
+            {% if outro_exists %}
+            <label class="checkbox-inline key-clear">
+              <input type="checkbox" name="remove_outro" value="1" /> Remove the outro file
+            </label>
+            {% endif %}
           </div>
-          <div>
-            <label for="target_minutes_max">Longest (minutes)</label>
-            <input type="number" step="0.1" min="0.5" id="target_minutes_max" name="target_minutes_max" value="{{ s.target_minutes_max }}" />
+          <div class="form-actions">
+            <button type="submit">Save music</button>
           </div>
-          <div>
-            <label for="max_article_length">Article length limit</label>
-            <input type="number" id="max_article_length" name="max_article_length" value="{{ s.max_article_length }}" min="500" />
-            <div class="field-hint">Very long source articles are shortened to about this many characters before the script is written.</div>
-          </div>
-        </div>
-      </div>
-      <div class="form-actions">
-        <button type="submit">Save episode length</button>
-      </div>
-    </div>
-  </form>
-
-  <hr class="settings-divider" />
-
-  <div id="music">
-  <form method="post" action="/settings/intro" enctype="multipart/form-data" class="settings-form">
-    <div class="settings-group">
-      <h2 class="settings-heading">
-        <span class="settings-heading-title">Intro music</span>
-        {% if intro_exists %}<span class="settings-tag settings-tag-ok">On file</span>{% endif %}
-        <span class="settings-tag settings-tag-optional">Optional</span>
-      </h2>
-      <p class="field-hint settings-group-lead">Short clip before the narration each morning.</p>
-      <div class="settings-fields">
-        <label class="checkbox-inline">
-          <input type="checkbox" name="intro_enabled" value="1" {{ 'checked' if s.intro_enabled else '' }}>
-          Play intro music before the narration
-        </label>
-        <div class="settings-field">
-          <label for="intro">Intro music file</label>
-          <input type="file" id="intro" name="intro" accept="audio/mpeg,.mp3" />
-          <div class="field-hint">MP3 format. Leave blank to keep your current file.</div>
-        </div>
-        <div class="settings-field">
-          <label for="intro_play_seconds">Full volume for (seconds)</label>
-          <input
-            type="number"
-            class="field-narrow"
-            id="intro_play_seconds"
-            name="intro_play_seconds"
-            value="{{ s.intro_play_seconds }}"
-            min="0"
-            step="0.5"
-          />
-          <p class="field-hint">Plays at full volume for this long, then fades under the voice{% if intro_duration %} — your file is {{ '%.0f'|format(intro_duration) }} seconds{% endif %}.</p>
-        </div>
-      </div>
-      <div class="form-actions">
-        <button type="submit">Save intro music</button>
-      </div>
-    </div>
-  </form>
-
-  <hr class="settings-divider" />
-
-  <form method="post" action="/settings/outro" enctype="multipart/form-data" class="settings-form">
-    <div class="settings-group">
-      <h2 class="settings-heading">
-        <span class="settings-heading-title">Outro music</span>
-        {% if outro_exists %}<span class="settings-tag settings-tag-ok">On file</span>{% endif %}
-        <span class="settings-tag settings-tag-optional">Optional</span>
-      </h2>
-      <p class="field-hint settings-group-lead">Short clip after the narration each morning.</p>
-      <div class="settings-fields">
-        <label class="checkbox-inline">
-          <input type="checkbox" name="outro_enabled" value="1" {{ 'checked' if s.outro_enabled else '' }}>
-          Play outro music after the narration
-        </label>
-        <div class="settings-field">
-          <label for="outro">Outro music file</label>
-          <input type="file" id="outro" name="outro" accept="audio/mpeg,.mp3" />
-          <div class="field-hint">MP3 format. Leave blank to keep your current file.</div>
-        </div>
-        <div class="settings-field">
-          <label for="outro_play_seconds">Overlap with narration (seconds)</label>
-          <input
-            type="number"
-            class="field-narrow"
-            id="outro_play_seconds"
-            name="outro_play_seconds"
-            value="{{ s.outro_play_seconds }}"
-            min="0"
-            step="0.5"
-          />
-          <p class="field-hint">The outro starts this many seconds before the narration ends, then keeps playing on its own{% if outro_duration %} — your file is {{ '%.0f'|format(outro_duration) }} seconds{% endif %}.</p>
-        </div>
-      </div>
-      <div class="form-actions">
-        <button type="submit">Save outro music</button>
-      </div>
-    </div>
-  </form>
-  </div>
-
-  <hr class="settings-divider" />
-
-  <div class="settings-form" id="stocks">
-    <div class="settings-group">
-      <h2 class="settings-heading">
-        <span class="settings-heading-title">Stock watch</span>
-        {% if watchlist %}<span class="settings-tag settings-tag-count">{{ watchlist|length }} stock{{ 's' if watchlist|length != 1 else '' }}</span>{% endif %}
-        <span class="settings-tag settings-tag-optional">Optional</span>
-      </h2>
-      <p class="field-hint settings-group-lead">A short overall read on how your holdings moved in the last 24 hours. No per-stock rundown.</p>
-      <form method="post" action="/settings/stocks">
-        <div class="settings-fields">
-          <label class="checkbox-inline">
-            <input type="checkbox" name="stocks_enabled" value="1" {{ 'checked' if s.stocks_enabled else '' }}>
-            Include stock watch in the episode
-          </label>
-          <label class="checkbox-inline">
-            <input type="checkbox" name="stocks_mature_reactions" value="1" {{ 'checked' if s.stocks_mature_reactions else '' }}>
-            Allow 18+ reactions (profanity and adult humor in the market aside)
-          </label>
-        </div>
-        <div class="form-actions">
-          <button type="submit">Save stock settings</button>
         </div>
       </form>
-      <form id="add-watchlist-form" method="post" action="/watchlist" hidden></form>
-      <div class="data-table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th scope="col">Ticker</th>
-              <th scope="col">Label</th>
-              <th scope="col" class="data-table-actions"><span class="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% if watchlist %}
-            {% for item in watchlist %}
-            <tr>
-              <td><code class="code-inline">{{ item.symbol }}</code></td>
-              <td>{{ item.label or '—' }}</td>
-              <td class="data-table-actions">
-                <form
-                  method="post"
-                  action="/watchlist/{{ item.id }}/delete"
-                  data-confirm="Remove {{ item.symbol }} from your watchlist?"
-                >
-                  <button class="btn btn-danger btn-sm" type="submit">Remove<span class="sr-only"> {{ item.symbol }}</span></button>
-                </form>
-              </td>
-            </tr>
-            {% endfor %}
-            {% else %}
-            <tr class="data-table-empty">
-              <td colspan="3">No stocks yet — add a ticker below.</td>
-            </tr>
-            {% endif %}
-            <tr class="data-table-add-row">
-              <td>
-                <label class="sr-only" for="stock_symbol">Ticker</label>
-                <input type="text" id="stock_symbol" form="add-watchlist-form" name="symbol" placeholder="AAPL, MSFT, ^GSPC" required />
-              </td>
-              <td>
-                <label class="sr-only" for="stock_label">Label</label>
-                <input type="text" id="stock_label" form="add-watchlist-form" name="label" placeholder="Optional label" />
-              </td>
-              <td class="data-table-actions">
-                <button type="submit" form="add-watchlist-form" class="btn btn-sm">Add</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+    </section>
+
+    <!-- ============ PODCAST FEED ============ -->
+    <section class="card settings-section" id="feed">
+      <div class="settings-section-head">
+        <h2 class="settings-section-title">Podcast feed</h2>
       </div>
-      <div class="field-hint">Separate multiple tickers with commas. Requires a Finnhub API key on <a href="/settings/plumbing#keys">Plumbing</a> (free at <a href="https://finnhub.io" target="_blank" rel="noopener">finnhub.io</a>). Examples: AAPL, MSFT, TSLA, ^GSPC (S&amp;P 500), ^FTSE</div>
-    </div>
-  </div>
-
-  <hr class="settings-divider" />
-
-  <form method="post" action="/settings/podcast-app" class="settings-form" id="podcast-app">
-    <div class="settings-group">
-      <h2 class="settings-heading">
-        <span class="settings-heading-title">In your podcast app</span>
-      </h2>
-      <p class="field-hint settings-group-lead">Title, author, and description shown when you subscribe in Apple Podcasts, Overcast, and similar apps.</p>
-      <div class="settings-fields">
-        <div class="field-row">
-          <div>
-            <label for="podcast_title">Show title</label>
-            <input type="text" id="podcast_title" name="podcast_title" value="{{ s.podcast_title }}" />
-          </div>
-          <div>
-            <label for="podcast_author">Author</label>
-            <input type="text" id="podcast_author" name="podcast_author" value="{{ s.podcast_author }}" />
-          </div>
-        </div>
+      <p class="settings-section-lead">How the show appears in Apple Podcasts, Overcast, and the rest.</p>
+      <div class="settings-group">
         <div class="settings-field">
-          <label for="podcast_description">Description</label>
-          <textarea id="podcast_description" name="podcast_description">{{ s.podcast_description }}</textarea>
+          <span class="text-sm font-medium">Feed URL</span>
+          <div class="feed-url-row">
+            <span class="feed-url-text" id="feed-url">{{ feed_url }}</span>
+            <button type="button" class="feed-url-copy btn-icon" id="copy-feed-button" aria-label="Copy feed URL">
+              <svg class="feed-copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
+                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+              </svg>
+              <svg class="feed-copied-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 6 9 17l-5-5"/>
+              </svg>
+            </button>
+            <span class="sr-only" id="copy-feed-feedback" aria-live="polite"></span>
+          </div>
+          <div class="field-hint">Keep this private — anyone with the link can hear every episode.</div>
         </div>
       </div>
-      <div class="form-actions">
-        <button type="submit">Save podcast details</button>
+      <div class="settings-group">
+        <form method="post" action="/settings/feed">
+          <div class="settings-fields">
+            <div class="field-row">
+              <div>
+                <label for="podcast_title">Show title</label>
+                <input type="text" id="podcast_title" name="podcast_title" value="{{ s.podcast_title }}" />
+              </div>
+              <div>
+                <label for="podcast_author">Author</label>
+                <input type="text" id="podcast_author" name="podcast_author" value="{{ s.podcast_author }}" />
+              </div>
+            </div>
+            <div class="settings-field">
+              <label for="podcast_description">Description</label>
+              <textarea id="podcast_description" name="podcast_description">{{ s.podcast_description }}</textarea>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit">Save podcast details</button>
+          </div>
+        </form>
       </div>
-    </div>
-  </form>
-</section>
+    </section>
+
+    <!-- ============ HOUSEHOLD ============ -->
+    <section class="card settings-section" id="household">
+      <div class="settings-section-head">
+        <h2 class="settings-section-title">Household</h2>
+        <span class="tag tag-count">{{ users|length }} {{ 'person' if users|length == 1 else 'people' }}</span>
+      </div>
+      <p class="settings-section-lead">
+        One shared show, a private login each. Everyone can queue messages that stay invisible
+        until they air; every other setting on this page is shared.
+      </p>
+      <div class="settings-group">
+        <ul class="rows">
+          {% for u in users %}
+          <li class="row">
+            <div>
+              <div class="text-sm font-medium">{{ u.username }}</div>
+              <div class="row-meta">Added {{ (u.created_at | in_timezone(household_timezone)).strftime('%b %-d, %Y') }}</div>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% if users|length == 1 %}
+        <p class="empty-note mt-4">Just you so far — add your partner so they can queue messages too.</p>
+        {% endif %}
+        <form method="post" action="/users" class="inline-form mt-5">
+          <div>
+            <label for="new_username">Username</label>
+            <input type="text" id="new_username" name="username" required autocomplete="username" />
+          </div>
+          <div>
+            <label for="new_password">Password</label>
+            <input type="password" id="new_password" name="password" required autocomplete="new-password" />
+          </div>
+          <button type="submit" class="btn btn-sm">Add person</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ============ CONNECTIONS ============ -->
+    <section class="card settings-section" id="connections">
+      <div class="settings-section-head">
+        <h2 class="settings-section-title">Connections</h2>
+      </div>
+      <p class="settings-section-lead">
+        <strong class="text-ink">Keys stay on your server, encrypted.</strong>
+        Start with one narrator and one writer; add the rest only if you need them. Leave a field
+        blank to keep the key already saved.
+      </p>
+
+      <form method="post" action="/settings/connections" autocomplete="off">
+        <div class="settings-group">
+          <h3 class="settings-group-title">
+            Narrator
+            <span class="tag tag-required">Required</span>
+          </h3>
+          <p class="settings-group-lead">Turns the script into audio. One of these is enough.</p>
+          <div class="key-list">
+            {{ api_key(
+              'elevenlabs', 'ElevenLabs key',
+              '<a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener">Get a key</a>',
+              credentials.elevenlabs_api_key, credentials.elevenlabs_from_env, credentials.elevenlabs_stored,
+              'The most realistic voices, with a large library.',
+              'Paste from your ElevenLabs account'
+            ) }}
+            {{ api_key(
+              'speechify', 'Speechify key',
+              '<a href="https://platform.speechify.ai" target="_blank" rel="noopener">Get a key</a>',
+              credentials.speechify_api_key, credentials.speechify_from_env, credentials.speechify_stored,
+              'An alternative narrator with simpler pricing.',
+              'Paste from the Speechify console'
+            ) }}
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3 class="settings-group-title">
+            Writer
+            <span class="tag tag-required">Required</span>
+          </h3>
+          <p class="settings-group-lead">Picks the stories and writes what the narrator reads. Only one needs to be active.</p>
+          <div class="key-list">
+            {{ api_key(
+              'openrouter', 'OpenRouter key',
+              '<a href="https://openrouter.ai/keys" target="_blank" rel="noopener">Get a key</a>',
+              credentials.openrouter_api_key, credentials.openrouter_from_env, credentials.openrouter_stored,
+              'One key, most models. A good first choice.',
+              'Paste from OpenRouter'
+            ) }}
+            {{ api_key(
+              'openai', 'OpenAI key', '',
+              credentials.openai_api_key, credentials.openai_from_env, credentials.openai_stored,
+              'Use GPT models directly.',
+              'Paste from the OpenAI dashboard'
+            ) }}
+            {{ api_key(
+              'anthropic', 'Anthropic key', '',
+              credentials.anthropic_api_key, credentials.anthropic_from_env, credentials.anthropic_stored,
+              'Use Claude models directly.',
+              'Paste from the Anthropic console'
+            ) }}
+
+            <div class="key-group{% if credentials.llm_api_key %} key-saved{% endif %}" role="group" aria-labelledby="self-hosted-label">
+              <div>
+                <p id="self-hosted-label" class="key-group-name">Self-hosted or other</p>
+                <p class="field-hint">Ollama, Groq, Together, or anything that speaks the OpenAI API format.</p>
+              </div>
+              <div class="key">
+                <label for="llm_base_url">Server address</label>
+                <input type="url" id="llm_base_url" name="llm_base_url" value="{{ s.llm_base_url }}" placeholder="http://host.docker.internal:11434/v1" />
+                <div class="field-hint">
+                  In Docker, <code class="code-inline">host.docker.internal</code> usually reaches a model
+                  running on your NAS or computer.
+                </div>
+              </div>
+              <div class="key">
+                <label for="llm_api_key">
+                  Key for that server
+                  {% if credentials.llm_api_key %}
+                  <span class="key-status key-status-saved">Saved</span>
+                  {% if credentials.llm_from_env %}<span class="key-status key-status-env">from server config</span>{% endif %}
+                  {% endif %}
+                </label>
+                <input
+                  type="password"
+                  id="llm_api_key"
+                  name="llm_api_key"
+                  autocomplete="new-password"
+                  placeholder="{% if credentials.llm_api_key and not credentials.llm_from_env %}Leave blank to keep the saved key{% else %}Ollama accepts any placeholder value{% endif %}"
+                />
+                {% if credentials.llm_stored and not credentials.llm_from_env %}
+                <label class="checkbox-inline key-clear">
+                  <input type="checkbox" name="clear_llm" value="1" /> Delete the saved key
+                </label>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3 class="settings-group-title">
+            Extras
+            <span class="tag tag-optional">Optional</span>
+          </h3>
+          <p class="settings-group-lead">Skip these unless you use stock watch or hit paywalled news sites.</p>
+          <div class="key-list">
+            {{ api_key(
+              'weatherapi', 'WeatherAPI.com key',
+              '<a href="https://www.weatherapi.com/signup.aspx" target="_blank" rel="noopener">Get a free key</a>',
+              credentials.weatherapi_api_key, credentials.weatherapi_from_env, credentials.weatherapi_stored,
+              'Saving a key makes this the forecast source instead of the keyless Open-Meteo.',
+              'Free key from weatherapi.com'
+            ) }}
+            {{ api_key(
+              'finnhub', 'Finnhub key',
+              '<a href="https://finnhub.io" target="_blank" rel="noopener">Get a free key</a>',
+              credentials.finnhub_api_key, credentials.finnhub_from_env, credentials.finnhub_stored,
+              'Reliable stock quotes for the watchlist.',
+              'Free key from finnhub.io'
+            ) }}
+            {{ api_key(
+              'zyte', 'Zyte key', '',
+              credentials.zyte_api_key, credentials.zyte_from_env, credentials.zyte_stored,
+              'A paid fallback for news sites that block normal reading.',
+              'Only needed if normal fetching fails'
+            ) }}
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <p class="field-hint">
+            Keys set in Docker or your <code class="code-inline">.env</code> file override anything saved here.
+            Changing the server session secret clears saved keys.
+          </p>
+          <div class="form-actions">
+            <button type="submit">Save keys</button>
+          </div>
+        </div>
+      </form>
+
+      <div class="settings-group" id="writer">
+        <form method="post" action="/settings/writer">
+          <h3 class="settings-group-title">Which writer drafts the episode</h3>
+          <div class="settings-fields">
+            <div class="field-row">
+              <div>
+                <label for="llm_provider">Service</label>
+                <select id="llm_provider" name="llm_provider">
+                  {% for option in llm_provider_options %}
+                  <option value="{{ option.id }}" data-default-model="{{ option.default_model }}" {{ 'selected' if option.id == llm_provider else '' }}>
+                    {{ option.label }}{% if not option.configured %} (add a key above){% endif %}
+                  </option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label for="llm_model">Model</label>
+                <div class="location-field">
+                  <input
+                    type="text"
+                    id="llm_model"
+                    name="llm_model"
+                    value="{{ s.llm_model }}"
+                    placeholder="Start typing to search…"
+                    autocomplete="off"
+                    data-model-autocomplete="1"
+                    data-llm-provider="{{ llm_provider }}"
+                  />
+                  <div id="llm-model-suggestions" class="location-suggestions" hidden></div>
+                </div>
+                <div class="field-hint">
+                  {% if llm_models %}Choose from the list as you type.
+                  {% else %}Couldn't load models. Type a model name, or check the <a href="#health">health checks</a>.{% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit">Save writer</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- ============ HEALTH ============ -->
+    <section class="card settings-section" id="health">
+      <div class="settings-section-head">
+        <h2 class="settings-section-title">Health</h2>
+      </div>
+      <p class="settings-section-lead">
+        Whether Morning News can reach everything it needs. Checks run on Sunday mornings, again
+        when an episode fails, and on demand{% if report.checked_at %} — last run
+        {{ report.checked_at | health_checked_at(household_timezone) }}{% endif %}.
+      </p>
+
+      {% if not report.checked_at %}
+      <div class="flash flash-error" role="alert">
+        Health checks haven't run yet. They start when the app boots, then repeat every Sunday at 3:15&nbsp;AM.
+      </div>
+      {% elif not report.has_issues %}
+      <div class="flash flash-success" role="status">
+        Everything required is working. Optional items are listed for reference.
+      </div>
+      {% endif %}
+
+      {% for group_label, checks in report.groups %}
+      <div class="status-group">
+        <h3 class="status-group-title">{{ group_label }}</h3>
+        <ul class="status-list">
+          {% for check in checks %}
+          <li class="status-row">
+            <div class="status-row-main">
+              <span class="status-indicator status-{{ check.status.value }}" aria-hidden="true"></span>
+              <div>
+                <div class="status-name">{{ check.name }}</div>
+                <div class="row-meta">{{ check.description }}</div>
+                {% if check.detail %}<div class="status-detail">{{ check.detail }}</div>{% endif %}
+              </div>
+            </div>
+            <span class="status-badge status-badge-{{ check.status.value }}">
+              {% if check.status.value == 'ok' %}Working
+              {% elif check.status.value == 'error' %}Problem
+              {% elif check.status.value == 'unconfigured' %}Needs setup
+              {% else %}Not used{% endif %}
+            </span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+
+      <div class="form-actions">
+        <a href="/settings?refresh=1#health" class="btn btn-secondary">Run checks again</a>
+      </div>
+    </section>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/location-autocomplete.js?v=4"></script>
-<script>
-  (() => {
-    const reportTypes = {
-      {% for rt in report_type_options %}
-      "{{ rt.id }}": {
-        label: {{ rt.input_label | tojson }},
-        hint: {{ rt.input_hint | tojson }},
-        placeholder: {{ rt.input_placeholder | tojson }},
-        wants_input: {{ rt.wants_input | tojson }},
-      },
-      {% endfor %}
-    };
-
-    const syncRow = (row) => {
-      const select = row.querySelector("select.weekly-report-select");
-      const inputWrap = row.querySelector(".weekly-report-input");
-      const textarea = row.querySelector("textarea.weekly-report-textarea");
-      if (!select || !inputWrap || !textarea) return;
-
-      const typeId = select.value.trim();
-      const meta = reportTypes[typeId];
-      if (!meta) {
-        inputWrap.dataset.empty = "true";
-        textarea.placeholder = "Notes for this report type appear here once you pick one above.";
-        return;
-      }
-      inputWrap.dataset.empty = meta.wants_input ? "false" : "true";
-      textarea.placeholder = meta.placeholder || meta.hint || "";
-    };
-
-    document.querySelectorAll(".weekly-report-row").forEach((row) => {
-      const select = row.querySelector("select.weekly-report-select");
-      syncRow(row);
-      select?.addEventListener("change", () => syncRow(row));
-    });
-  })();
+<script src="/static/location-autocomplete.js?v=5"></script>
+<script src="/static/model-autocomplete.js?v=3"></script>
+<script id="report-type-meta" type="application/json">
+  {
+    {% for rt in report_type_options %}
+    "{{ rt.id }}": {
+      "label": {{ rt.input_label | tojson }},
+      "hint": {{ rt.input_hint | tojson }},
+      "placeholder": {{ rt.input_placeholder | tojson }},
+      "wants_input": {{ rt.wants_input | tojson }}
+    }{{ "," if not loop.last else "" }}
+    {% endfor %}
+  }
 </script>
-<script>
-  (() => {
-    const randomize = document.getElementById("voice_randomize");
-    const pickerRow = document.getElementById("voice-picker-row");
-    const ttsProvider = document.getElementById("tts_provider");
-    const voiceLanguage = document.getElementById("voice_language");
-    const voiceAccent = document.getElementById("voice_accent");
-    const voiceModel = document.getElementById("voice_model");
-    const voiceControl = document.getElementById("voice-id-control");
-    const voiceHint = document.getElementById("voice-id-hint");
-    const speechifyToneRow = document.getElementById("speechify-tone-row");
-    const speechifyEmotion = document.getElementById("speechify_emotion");
-    const voicePreviewRow = document.getElementById("voice-preview-row");
-    const voicePreviewAudio = document.getElementById("voice-preview-audio");
-    const voicePreviewById = new Map();
-
-    const formatAccent = (accent) =>
-      accent.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-
-    const syncSpeechifyTone = (visible) => {
-      if (!speechifyToneRow) return;
-      speechifyToneRow.hidden = !visible;
-    };
-
-    const fillSelect = (select, items, selectedValue) => {
-      select.replaceChildren();
-      for (const item of items) {
-        const option = document.createElement("option");
-        option.value = item.value;
-        option.textContent = item.label;
-        if (item.value === selectedValue) option.selected = true;
-        select.appendChild(option);
-      }
-    };
-
-    const updateSpeechifyToneOptions = (emotions, selectedEmotion) => {
-      if (!speechifyEmotion) return;
-      fillSelect(
-        speechifyEmotion,
-        (emotions ?? []).map((emotion) => ({
-          value: emotion.id,
-          label: emotion.label,
-        })),
-        selectedEmotion ?? "",
-      );
-    };
-
-    const syncVoicePicker = () => {
-      if (!randomize || !pickerRow) return;
-      pickerRow.hidden = randomize.checked;
-    };
-
-    randomize?.addEventListener("change", syncVoicePicker);
-    syncVoicePicker();
-    syncSpeechifyTone(ttsProvider?.value === "speechify");
-
-    const indexVoicePreviewsFromSelect = () => {
-      voicePreviewById.clear();
-      const select = voiceControl?.querySelector("select#voice_id");
-      if (!select) return;
-      for (const option of select.options) {
-        const previewUrl = option.dataset.previewUrl?.trim();
-        if (previewUrl) voicePreviewById.set(option.value, previewUrl);
-      }
-    };
-
-    const updateVoicePreviews = (voices) => {
-      voicePreviewById.clear();
-      for (const voice of voices ?? []) {
-        const previewUrl = voice.preview_url?.trim();
-        if (previewUrl) voicePreviewById.set(voice.voice_id, previewUrl);
-      }
-    };
-
-    const syncVoicePreview = () => {
-      if (!voicePreviewRow || !voicePreviewAudio) return;
-      const previewUrl =
-        ttsProvider?.value === "speechify" ? voicePreviewById.get(currentVoiceId()) : "";
-      if (!previewUrl) {
-        voicePreviewRow.hidden = true;
-        voicePreviewAudio.removeAttribute("src");
-        voicePreviewAudio.load();
-        return;
-      }
-      voicePreviewRow.hidden = false;
-      if (voicePreviewAudio.getAttribute("src") !== previewUrl) {
-        voicePreviewAudio.src = previewUrl;
-        voicePreviewAudio.load();
-      }
-    };
-
-    const currentVoiceId = () => voiceControl?.querySelector("#voice_id")?.value ?? "";
-
-    const renderVoiceControl = (voices, selectedVoiceId) => {
-      if (!voiceControl) return;
-      if (voices.length > 0) {
-        const select = document.createElement("select");
-        select.id = "voice_id";
-        select.name = "voice_id";
-        fillSelect(
-          select,
-          voices.map((voice) => ({
-            value: voice.voice_id,
-            label: voice.accent
-              ? `${voice.name} (${formatAccent(voice.accent)})`
-              : voice.name,
-          })),
-          selectedVoiceId,
-        );
-        for (const [index, voice] of voices.entries()) {
-          const previewUrl = voice.preview_url?.trim();
-          if (previewUrl && select.options[index]) {
-            select.options[index].dataset.previewUrl = previewUrl;
-          }
-        }
-        voiceControl.replaceChildren(select);
-        if (voiceHint) voiceHint.hidden = true;
-        updateVoicePreviews(voices);
-        syncVoicePreview();
-        return;
-      }
-
-      voicePreviewById.clear();
-      syncVoicePreview();
-
-      const input = document.createElement("input");
-      input.type = "text";
-      input.id = "voice_id";
-      input.name = "voice_id";
-      input.value = selectedVoiceId;
-      input.placeholder = "Voice ID from your narration provider";
-      voiceControl.replaceChildren(input);
-      if (voiceHint) voiceHint.hidden = false;
-    };
-
-    const updateAccentOptions = (accents, selectedAccent) => {
-      if (!voiceAccent) return;
-      const items = [{ value: "", label: "Any accent" }];
-      for (const accent of accents) {
-        items.push({ value: accent, label: formatAccent(accent) });
-      }
-      const keepSelection = selectedAccent && accents.includes(selectedAccent);
-      fillSelect(voiceAccent, items, keepSelection ? selectedAccent : "");
-    };
-
-    const updateVoiceModels = (models, selectedModel) => {
-      if (!voiceModel) return;
-      fillSelect(
-        voiceModel,
-        models.map((model) => ({ value: model.id, label: model.label })),
-        selectedModel,
-      );
-    };
-
-    let fetchTimer = null;
-
-    const fetchVoiceOptions = async ({ resetForProvider = false } = {}) => {
-      if (!ttsProvider) return;
-
-      const previousVoiceId = currentVoiceId();
-      const previousModel = voiceModel?.value ?? "";
-      const previousEmotion = speechifyEmotion?.value ?? "";
-
-      if (resetForProvider && voiceAccent) {
-        voiceAccent.value = "";
-      }
-
-      const params = new URLSearchParams({
-        provider: ttsProvider.value,
-        voice_language: voiceLanguage?.value ?? "",
-        voice_accent: voiceAccent?.value ?? "",
-      });
-
-      try {
-        const response = await fetch(`/api/tts/voices?${params}`);
-        if (!response.ok) return;
-        const data = await response.json();
-
-        const voiceIds = new Set((data.voices ?? []).map((voice) => voice.voice_id));
-        const modelIds = new Set((data.voice_models ?? []).map((model) => model.id));
-        const selectedVoiceId = resetForProvider
-          ? data.default_voice_id
-          : voiceIds.has(previousVoiceId)
-            ? previousVoiceId
-            : data.default_voice_id;
-        const selectedModel = resetForProvider
-          ? data.default_voice_model
-          : modelIds.has(previousModel)
-            ? previousModel
-            : data.default_voice_model;
-
-        updateAccentOptions(data.accents ?? [], voiceAccent?.value ?? "");
-        updateVoiceModels(data.voice_models ?? [], selectedModel);
-        renderVoiceControl(data.voices ?? [], selectedVoiceId);
-        syncSpeechifyTone(Boolean(data.show_speechify_tone));
-        if (data.show_speechify_tone) {
-          updateSpeechifyToneOptions(
-            data.speechify_emotions ?? [],
-            resetForProvider ? "" : previousEmotion,
-          );
-        }
-        updateVoicePreviews(data.voices ?? []);
-        syncVoicePreview();
-      } catch {
-        // Keep existing controls if the request fails.
-      }
-    };
-
-    const scheduleFetch = (options) => {
-      window.clearTimeout(fetchTimer);
-      fetchTimer = window.setTimeout(() => fetchVoiceOptions(options), 150);
-    };
-
-    ttsProvider?.addEventListener("change", () => {
-      syncSpeechifyTone(ttsProvider.value === "speechify");
-      scheduleFetch({ resetForProvider: true });
-    });
-    voiceLanguage?.addEventListener("change", () => {
-      scheduleFetch({ resetForProvider: false });
-    });
-    voiceAccent?.addEventListener("change", () => {
-      scheduleFetch({ resetForProvider: false });
-    });
-    voiceControl?.addEventListener("change", (event) => {
-      if (event.target.id === "voice_id") syncVoicePreview();
-    });
-
-    indexVoicePreviewsFromSelect();
-    syncVoicePreview();
-  })();
-</script>
+<script src="/static/settings-page.js?v=2"></script>
 {% endblock %}

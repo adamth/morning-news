@@ -26,7 +26,6 @@ _SECRET_FIELDS: tuple[tuple[str, str], ...] = (
     ("llm_api_key_enc", "LLM_API_KEY"),
     ("zyte_api_key_enc", "ZYTE_API_KEY"),
     ("finnhub_api_key_enc", "FINNHUB_API_KEY"),
-    ("newsdata_api_key_enc", "NEWSDATA_API_KEY"),
     ("weatherapi_api_key_enc", "WEATHERAPI_API_KEY"),
 )
 
@@ -83,7 +82,6 @@ class Credentials:
     llm_base_url: str | None = None
     zyte_api_key: str | None = None
     finnhub_api_key: str | None = None
-    newsdata_api_key: str | None = None
     weatherapi_api_key: str | None = None
 
     elevenlabs_from_env: bool = False
@@ -94,7 +92,6 @@ class Credentials:
     llm_from_env: bool = False
     zyte_from_env: bool = False
     finnhub_from_env: bool = False
-    newsdata_from_env: bool = False
     weatherapi_from_env: bool = False
 
     elevenlabs_stored: bool = False
@@ -105,7 +102,6 @@ class Credentials:
     llm_stored: bool = False
     zyte_stored: bool = False
     finnhub_stored: bool = False
-    newsdata_stored: bool = False
     weatherapi_stored: bool = False
 
 
@@ -138,9 +134,6 @@ def load_credentials(settings: Settings) -> Credentials:
 
     zyte, zyte_env, zyte_stored = pick("ZYTE_API_KEY", settings.zyte_api_key_enc)
     finnhub, finnhub_env, finnhub_stored = pick("FINNHUB_API_KEY", settings.finnhub_api_key_enc)
-    newsdata, newsdata_env, newsdata_stored = pick(
-        "NEWSDATA_API_KEY", settings.newsdata_api_key_enc
-    )
     weatherapi, weatherapi_env, weatherapi_stored = pick(
         "WEATHERAPI_API_KEY", settings.weatherapi_api_key_enc
     )
@@ -155,7 +148,6 @@ def load_credentials(settings: Settings) -> Credentials:
         llm_base_url=llm_base_url,
         zyte_api_key=zyte,
         finnhub_api_key=finnhub,
-        newsdata_api_key=newsdata,
         weatherapi_api_key=weatherapi,
         elevenlabs_from_env=elevenlabs_env,
         speechify_from_env=speechify_env,
@@ -165,7 +157,6 @@ def load_credentials(settings: Settings) -> Credentials:
         llm_from_env=llm_env,
         zyte_from_env=zyte_env,
         finnhub_from_env=finnhub_env,
-        newsdata_from_env=newsdata_env,
         weatherapi_from_env=weatherapi_env,
         elevenlabs_stored=elevenlabs_stored,
         speechify_stored=speechify_stored,
@@ -175,7 +166,6 @@ def load_credentials(settings: Settings) -> Credentials:
         llm_stored=llm_stored,
         zyte_stored=zyte_stored,
         finnhub_stored=finnhub_stored,
-        newsdata_stored=newsdata_stored,
         weatherapi_stored=weatherapi_stored,
     )
 
@@ -212,7 +202,6 @@ def apply_secret_updates(
     llm_base_url: str = "",
     zyte_api_key: str = "",
     finnhub_api_key: str = "",
-    newsdata_api_key: str = "",
     weatherapi_api_key: str = "",
     clear_elevenlabs: bool = False,
     clear_speechify: bool = False,
@@ -222,7 +211,6 @@ def apply_secret_updates(
     clear_llm: bool = False,
     clear_zyte: bool = False,
     clear_finnhub: bool = False,
-    clear_newsdata: bool = False,
     clear_weatherapi: bool = False,
 ) -> None:
     updates: list[tuple[str, str, bool]] = [
@@ -234,7 +222,6 @@ def apply_secret_updates(
         ("llm_api_key_enc", llm_api_key, clear_llm),
         ("zyte_api_key_enc", zyte_api_key, clear_zyte),
         ("finnhub_api_key_enc", finnhub_api_key, clear_finnhub),
-        ("newsdata_api_key_enc", newsdata_api_key, clear_newsdata),
         ("weatherapi_api_key_enc", weatherapi_api_key, clear_weatherapi),
     ]
 

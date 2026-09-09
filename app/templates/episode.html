@@ -1,55 +1,74 @@
 {% extends "base.html" %}
 {% block title %}{{ episode.title }} - Morning News{% endblock %}
 {% block content %}
-<p><a href="/" class="text-muted no-underline hover:text-accent">&larr; Back to dashboard</a></p>
-<h1>{{ episode.title }}</h1>
-<p class="page-lead mb-6">
-  {{ episode.created_at | in_timezone(household_timezone) | spoken_date }}
-  <span class="badge badge-{{ episode.status.value }}">{{ episode.status.value | episode_status_label }}</span>
-  {% if episode.duration_seconds %}&middot; {{ (episode.duration_seconds / 60) | round(1) }} min{% endif %}
-</p>
+<p class="mb-4"><a href="/" class="text-sm text-muted no-underline hover:text-accent-strong">&larr; All episodes</a></p>
 
-{% if episode.status.value == 'failed' %}
-<div class="flash flash-error">Generation failed: {{ episode.error }}</div>
-{% endif %}
+<section class="card ep mb-5">
+  <span class="ep-number" aria-hidden="true">{{ episode_number }}</span>
+  <div class="ep-meta">
+    <span>{{ episode.created_at | in_timezone(household_timezone) | spoken_date }}</span>
+    {% if episode.duration_seconds %}
+    <span class="ep-meta-sep">&times;</span>
+    <span>{{ (episode.duration_seconds / 60) | round(1) }} min</span>
+    {% endif %}
+    <span class="badge badge-{{ episode.status.value }}">{{ episode.status.value | episode_status_label }}</span>
+  </div>
+  <h1 class="ep-title">{{ episode.title }}</h1>
+  {% if episode.description %}<p class="ep-desc">{{ episode.description }}</p>{% endif %}
 
-<div class="section-stack">
+  {% if episode.status.value == 'failed' and episode.error %}
+  <p class="field-hint mt-4" data-tone="warn">{{ episode.error }}</p>
+  {% endif %}
+
+  {% if episode.weather_summary or episode.market_summary or episode.events_summary %}
+  <dl class="facts">
+    {% if episode.weather_summary %}
+    <div class="fact"><dt>Weather</dt><dd>{{ episode.weather_summary }}</dd></div>
+    {% endif %}
+    {% if episode.market_summary %}
+    <div class="fact"><dt>Market</dt><dd>{{ episode.market_summary }}</dd></div>
+    {% endif %}
+    {% if episode.events_summary %}
+    <div class="fact"><dt>Calendar</dt><dd>{{ episode.events_summary }}</dd></div>
+    {% endif %}
+  </dl>
+  {% endif %}
+
   {% if episode.audio_path %}
-  <section class="section">
-    <h2 class="mb-4">Listen</h2>
-    <audio controls preload="none" src="{{ media_url }}"></audio>
-  </section>
+  <div class="hero-actions">
+    <button
+      type="button"
+      class="play-btn play-btn-lg"
+      data-play-episode="{{ episode.id }}"
+      data-episode-title="{{ episode.title }}"
+      aria-label="Play {{ episode.title }}"
+    >
+      <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+      <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+    </button>
+    <a class="btn btn-secondary" href="{{ media_url }}" download>Download MP3</a>
+  </div>
   {% endif %}
+</section>
 
-  {% if episode.weather_summary or episode.events_summary or episode.market_summary %}
-  <section class="section">
-    <h2 class="mb-4">Today</h2>
-    {% if episode.weather_summary %}<p><strong>Weather:</strong> {{ episode.weather_summary }}</p>{% endif %}
-    {% if episode.market_summary %}<p><strong>Market:</strong> {{ episode.market_summary }}</p>{% endif %}
-    {% if episode.events_summary %}<p><strong>Events:</strong> {{ episode.events_summary }}</p>{% endif %}
-  </section>
-  {% endif %}
-
+<div class="card-stack">
   {% if articles or reported_items %}
-  <section class="section">
-    <h2 class="mb-4">Show notes</h2>
-    <ul>
+  <section class="card">
+    <div class="card-head"><h2>Show notes</h2></div>
+    <ul class="rows">
       {% for article in articles %}
-      <li class="list-row">
+      <li class="row">
         <div>
-          <div><a href="{{ article.url }}" target="_blank" rel="noopener">{{ article.title }}</a></div>
-          {% if article.publisher %}<div class="list-meta">{{ article.publisher }}</div>{% endif %}
+          <div class="text-sm"><a href="{{ article.url }}" target="_blank" rel="noopener">{{ article.title }}</a></div>
+          {% if article.publisher %}<div class="row-meta">{{ article.publisher }}</div>{% endif %}
         </div>
       </li>
       {% endfor %}
       {% for item in reported_items %}
-      <li class="list-row">
-        <div>
-          {% if item.url %}
-          <div><a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.item }}</a></div>
-          {% else %}
-          <div>{{ item.item }}</div>
-          {% endif %}
+      <li class="row">
+        <div class="text-sm">
+          {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.item }}</a>
+          {% else %}{{ item.item }}{% endif %}
         </div>
       </li>
       {% endfor %}
@@ -58,19 +77,19 @@
   {% endif %}
 
   {% if episode.script %}
-  <section class="section">
-    <h2 class="mb-4">Transcript</h2>
+  <section class="card">
+    <div class="card-head"><h2>Transcript</h2></div>
     <div class="script-block">{{ episode.script }}</div>
   </section>
   {% endif %}
 
   {% if log_groups %}
-  <section class="section">
-    <h2 class="mb-2">Generation log</h2>
-    <p class="page-lead mb-5 text-base">Everything that went into building this episode — API calls, AI prompts, and pipeline steps.</p>
+  <section class="card">
+    <div class="card-head mb-1"><h2>Generation log</h2></div>
+    <p class="field-hint mb-4">Everything that went into this episode — API calls, prompts, and pipeline steps.</p>
     <div class="audit-log">
       {% for group in log_groups %}
-      <details class="audit-group" open>
+      <details class="audit-group">
         <summary class="audit-group-summary">
           <span class="audit-group-title">{{ group.label }}</span>
           <span class="audit-group-count">{{ group.entries | length }} step{{ 's' if group.entries | length != 1 else '' }}</span>
@@ -108,14 +127,12 @@
   {% endif %}
 
   {% if episode.status.value != 'generating' %}
-  <section class="section">
-    <h2 class="mb-2">Delete episode</h2>
-    <p class="page-lead mb-4 text-base">
-      Remove this episode from your podcast feed. Its audio, show notes, and generation log will be deleted.
-      Stories from this episode can appear in a future show again.
-      {% if episode.status.value == 'ready' %}
-      Private messages read aloud in this episode will be queued again.
-      {% endif %}
+  <section class="card">
+    <div class="card-head mb-1"><h2>Delete episode</h2></div>
+    <p class="field-hint mb-4">
+      Removes it from the feed along with its audio, show notes, and log. Its stories become
+      eligible for a future show again.
+      {% if episode.status.value == 'ready' %}Messages read aloud here go back in the queue.{% endif %}
     </p>
     <form
       method="post"
