@@ -184,6 +184,100 @@ class TestBuildGenerationPrompt:
             ],
         )
 
+    def test_geography_block_is_omitted_without_home_places(self):
+        prompt = _build_generation_prompt(**self._base_kwargs())
+        assert "GEOGRAPHY" not in prompt
+        assert "NOT LOCAL" not in prompt
+
+    def test_geography_block_lists_home_places_closest_first(self):
+        kwargs = self._base_kwargs()
+        kwargs["home_places"] = ["Sassafras", "Olinda", "Monbulk"]
+        prompt = _build_generation_prompt(**kwargs)
+        assert "GEOGRAPHY" in prompt
+        assert "Sassafras, Olinda, Monbulk" in prompt
+
+    def test_articles_are_tagged_local_or_not_local(self):
+        kwargs = self._base_kwargs()
+        kwargs["home_places"] = ["Sassafras"]
+        kwargs["articles"] = [
+            ArticleInput(
+                id=0,
+                title="Sassafras hall reopens",
+                publisher="Star Mail",
+                content="Body.",
+                local_places=["Sassafras"],
+            ),
+            ArticleInput(id=1, title="Federal budget", publisher="ABC", content="Body."),
+        ]
+        prompt = _build_generation_prompt(**kwargs)
+        assert "[LOCAL: mentions Sassafras]" in prompt
+        assert "[NOT LOCAL: mentions no home place]" in prompt
+
+    def test_articles_are_untagged_when_no_home_places_configured(self):
+        kwargs = self._base_kwargs()
+        kwargs["articles"] = [
+            ArticleInput(
+                id=0,
+                title="Sassafras hall reopens",
+                publisher="Star Mail",
+                content="Body.",
+                local_places=["Sassafras"],
+            ),
+        ]
+        prompt = _build_generation_prompt(**kwargs)
+        assert "[LOCAL:" not in prompt
+
+    def test_priority_feed_tag_survives_local_tagging(self):
+        kwargs = self._base_kwargs()
+        kwargs["home_places"] = ["Sassafras"]
+        kwargs["articles"] = [
+            ArticleInput(
+                id=0,
+                title="Sassafras hall reopens",
+                publisher="Star Mail",
+                content="Body.",
+                source_name="Star Mail",
+                priority=True,
+                local_places=["Sassafras"],
+            ),
+        ]
+        prompt = _build_generation_prompt(**kwargs)
+        assert "priority feed: Star Mail" in prompt
+        assert "[LOCAL: mentions Sassafras]" in prompt
+
+    def test_interest_block_is_omitted_when_no_filler_is_offered(self):
+        prompt = _build_generation_prompt(**self._base_kwargs())
+        assert "INTEREST TOPICS" not in prompt
+
+    def test_interest_block_appears_and_constrains_usage(self):
+        kwargs = self._base_kwargs()
+        kwargs["articles"] = [
+            ArticleInput(id=0, title="Local story", publisher="Star Mail", content="Body."),
+            ArticleInput(
+                id=1,
+                title="Melbourne studio ships a game",
+                publisher="ABC",
+                content="Body.",
+                interest=True,
+            ),
+        ]
+        prompt = _build_generation_prompt(**kwargs)
+        assert "INTEREST TOPICS" in prompt
+        assert "[INTEREST: slow-day filler only]" in prompt
+        assert "at most ONE" in prompt
+
+    def test_interest_tag_takes_precedence_over_the_not_local_tag(self):
+        # An interest story is not a local story that failed a test, and must
+        # not be presented to the model as one.
+        kwargs = self._base_kwargs()
+        kwargs["home_places"] = ["Sassafras"]
+        kwargs["articles"] = [
+            ArticleInput(id=0, title="AI model released", publisher="ABC", content="B.", interest=True),
+        ]
+        prompt = _build_generation_prompt(**kwargs)
+        assert "[INTEREST: slow-day filler only]" in prompt
+        assert "NOT LOCAL: mentions no home place" not in prompt
+
     def test_regular_episode_prompt_builds_without_error(self):
         prompt = _build_generation_prompt(**self._base_kwargs())
         assert "Morning News" in prompt

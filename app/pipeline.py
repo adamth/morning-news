@@ -31,6 +31,7 @@ from .db import (
     get_settings,
     utcnow,
 )
+from .places import parse_places
 from .report_types import REPORT_TYPES, WEEKDAY_LABELS, get_report_type, is_special
 from .sources import news, weather
 from .sources.calendar import CalendarEvent, CalendarSource, fetch_all_events
@@ -310,6 +311,8 @@ def _run(
             content=item.content,
             source_name=item.source_name,
             priority=item.priority,
+            local_places=item.local_places,
+            interest=item.interest,
         )
         for index, item in enumerate(articles)
         if item.content
@@ -350,6 +353,7 @@ def _run(
         podcast_title=settings.podcast_title,
         date_text=date_text,
         locality=settings.locality,
+        home_places=parse_places(settings.home_places),
         target_min=settings.target_minutes_min,
         target_max=settings.target_minutes_max,
         excluded_topics=excluded_topics,
@@ -570,6 +574,7 @@ def _gather_source_data(
             zyte_api_key=credentials.zyte_api_key,
             exclude_urls=aired_urls,
             exclude_titles=aired_titles,
+            home_places=parse_places(settings.home_places),
         )
 
     def fetch_weather() -> tuple[str, WeatherSummary | None]:
@@ -662,8 +667,19 @@ def _news_sources(session: Session, settings: Settings) -> list[news.NewsSource]
                 hl=settings.news_hl,
                 gl=settings.news_gl,
                 ceid=settings.news_ceid,
+                home_places=parse_places(settings.home_places),
             )
         )
+
+    # Interest topics are independent of the listener's location.
+    sources.extend(
+        news.build_interest_sources(
+            parse_places(settings.interest_topics),
+            hl=settings.news_hl,
+            gl=settings.news_gl,
+            ceid=settings.news_ceid,
+        )
+    )
 
     return sources
 

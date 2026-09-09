@@ -88,6 +88,22 @@
               </div>
             </div>
 
+            <div class="settings-field">
+              <label for="home_places">Places that count as local</label>
+              <textarea
+                id="home_places"
+                name="home_places"
+                rows="3"
+                placeholder="Sassafras, Olinda, Kallista, Mount Dandenong, Monbulk, Belgrave"
+              >{{ s.home_places }}</textarea>
+              <div class="field-hint">
+                Your town and the neighbours you actually care about, comma separated,
+                closest first. Local papers cover a much wider area than you live in, so
+                this is what keeps a school fete forty minutes away out of your episode.
+                Leave it empty for broad region-wide news.
+              </div>
+            </div>
+
             <div class="field-row">
               <div>
                 <label for="schedule_time">Build time</label>
@@ -299,6 +315,32 @@
         {% else %}
         <p class="empty-note mt-4">Nothing skipped yet.</p>
         {% endif %}
+      </div>
+
+      <div class="settings-group" id="interests">
+        <h3 class="settings-group-title">
+          Slow-day interests
+          <span class="tag tag-optional">Optional</span>
+        </h3>
+        <p class="settings-group-lead">
+          Subjects you'd enjoy hearing about when there isn't enough local news to fill the
+          episode. At most one per show, never the lead story. Leave empty for local news only.
+        </p>
+        <form method="post" action="/settings/interests">
+          <div class="settings-field">
+            <label class="sr-only" for="interest_topics">Slow-day interests</label>
+            <textarea
+              id="interest_topics"
+              name="interest_topics"
+              rows="2"
+              placeholder="Australian video game industry, software engineering, artificial intelligence, film and TV"
+            >{{ s.interest_topics }}</textarea>
+            <div class="field-hint">Separate several subjects with commas.</div>
+          </div>
+          <div class="form-actions">
+            <button type="submit">Save interests</button>
+          </div>
+        </form>
       </div>
 
       <div class="settings-group" id="weekly">

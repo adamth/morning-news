@@ -68,6 +68,8 @@ class Settings(SQLModel, table=True):
     locality: str = ""
     admin1: str = ""  # state / region for regional news fallbacks
     country: str = ""  # country name for regional news fallbacks
+    home_places: str = ""  # comma-separated nearby towns/areas that count as "local"
+    interest_topics: str = ""  # comma-separated topics for slow-news-day filler
     news_hl: str = "en-US"  # interface language for Google News
     news_gl: str = "US"  # geographic edition
     news_ceid: str = "US:en"  # country:language edition pair
@@ -273,6 +275,8 @@ def _migrate_schema() -> None:
     migrations = (
         "ALTER TABLE settings ADD COLUMN admin1 TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN country TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN home_places TEXT DEFAULT ''",
+        "ALTER TABLE settings ADD COLUMN interest_topics TEXT DEFAULT ''",
         "ALTER TABLE settings ADD COLUMN intro_play_seconds REAL DEFAULT 6.0",
         "ALTER TABLE settings ADD COLUMN outro_play_seconds REAL DEFAULT 6.0",
         "ALTER TABLE settings ADD COLUMN stocks_enabled INTEGER DEFAULT 0",

@@ -35,6 +35,7 @@ from ..db import (
 from ..episodes import EpisodeDeleteError, delete_episode
 from ..episode_log import category_label
 from ..health import get_health_report
+from ..places import parse_places, serialize_places
 from ..report_types import REPORT_TYPES, WEEKDAY_LABELS
 from ..llm_models import list_chat_models
 from ..llm_providers import (
@@ -591,10 +592,12 @@ def save_settings(
     news_hl: str = Form("en-US"),
     news_gl: str = Form("US"),
     news_ceid: str = Form("US:en"),
+    home_places: str = Form(""),
     target_minutes_min: float = Form(1.5),
     target_minutes_max: float = Form(3.0),
 ):
     settings = get_settings(session)
+    settings.home_places = serialize_places(parse_places(home_places))
 
     settings.schedule_hour, settings.schedule_minute = _parse_time(schedule_time)
 
@@ -671,6 +674,20 @@ def save_content_settings(
     session.add(settings)
     session.commit()
     return _settings_redirect("content", msg="Saved.")
+
+
+@router.post("/settings/interests")
+def save_interest_topics(
+    user: User = Depends(web_user),
+    session: Session = Depends(get_session),
+    interest_topics: str = Form(""),
+):
+    settings = get_settings(session)
+    settings.interest_topics = serialize_places(parse_places(interest_topics))
+    settings.updated_at = utcnow()
+    session.add(settings)
+    session.commit()
+    return _settings_redirect("interests", msg="Slow-day interests saved.")
 
 
 @router.post("/calendars")
