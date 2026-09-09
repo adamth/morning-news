@@ -922,8 +922,8 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/location-autocomplete.js?v=5"></script>
-<script src="/static/model-autocomplete.js?v=3"></script>
+<script src="{{ static_url('location-autocomplete.js') }}"></script>
+<script src="{{ static_url('model-autocomplete.js') }}"></script>
 <script id="report-type-meta" type="application/json">
   {
     {% for rt in report_type_options %}
@@ -936,5 +936,5 @@
     {% endfor %}
   }
 </script>
-<script src="/static/settings-page.js?v=2"></script>
+<script src="{{ static_url('settings-page.js') }}"></script>
 {% endblock %}

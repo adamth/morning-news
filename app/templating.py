@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone as dt_timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -9,7 +10,34 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi.templating import Jinja2Templates
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+STATIC_DIR = Path(__file__).parent / "static"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+_static_digests: dict[str, tuple[float, str]] = {}
+
+
+def static_url(filename: str) -> str:
+    """Return a static path fingerprinted with the file's contents.
+
+    Every class name can change between releases, so a stylesheet the browser
+    kept from the previous image renders the new markup unstyled. The digest in
+    the query string makes each build a distinct URL, which no cache can confuse
+    with the last one.
+    """
+
+    path = STATIC_DIR / filename
+    try:
+        modified_at = path.stat().st_mtime
+    except OSError:
+        return f"/static/{filename}"
+
+    cached = _static_digests.get(filename)
+    if cached is None or cached[0] != modified_at:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+        _static_digests[filename] = (modified_at, digest)
+        cached = _static_digests[filename]
+
+    return f"/static/{filename}?v={cached[1]}"
 
 _MESSAGE_STATUS_LABELS = {
     "pending": "Queued for next episode",
@@ -71,3 +99,4 @@ templates.env.filters["episode_status_label"] = episode_status_label
 templates.env.filters["in_timezone"] = in_timezone
 templates.env.filters["spoken_date"] = format_spoken_date
 templates.env.filters["health_checked_at"] = health_checked_at
+templates.env.globals["static_url"] = static_url

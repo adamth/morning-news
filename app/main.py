@@ -82,7 +82,26 @@ async def attach_health_summary(request: Request, call_next):
     return await call_next(request)
 
 _STATIC_DIR = Path(__file__).parent / "static"
-app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+
+class FingerprintedStaticFiles(StaticFiles):
+    """Cache fingerprinted asset URLs indefinitely; make bare ones revalidate.
+
+    `static_url` stamps a content digest into the query string, so those URLs
+    cannot go stale. A request arriving without one may come from an older page
+    or a bookmark and must keep checking back.
+    """
+
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        response = super().file_response(full_path, stat_result, scope, status_code=status_code)
+        has_fingerprint = b"v=" in scope.get("query_string", b"")
+        response.headers["Cache-Control"] = (
+            "public, max-age=31536000, immutable" if has_fingerprint else "no-cache"
+        )
+        return response
+
+
+app.mount("/static", FingerprintedStaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
 @app.exception_handler(LoginRequired)
