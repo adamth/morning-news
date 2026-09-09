@@ -8,6 +8,11 @@
 {% set started_generating = request.query_params.get('generating') == '1' %}
 {% set is_building = (latest and latest.status.value == 'generating') or started_generating %}
 
+<p class="page-note">
+  Next episode <strong>{{ schedule_label }}</strong>{% if location_label %} for {{ location_label }}{% endif %},
+  then every day. <a href="/settings#schedule">Change the schedule</a>
+</p>
+
 <section
   class="card ep mb-5"
   id="hero"
@@ -108,7 +113,7 @@
       </p>
       {% else %}
       <p class="ep-desc">
-        Your show builds every day at <strong>{{ schedule_label }}</strong>. You can also make one now.
+        Nothing has been built yet. Make one now, or wait for tomorrow morning.
       </p>
       {% endif %}
     </div>
@@ -123,8 +128,8 @@
     <div class="make-episode-copy">
       <h2 class="text-base">Make an episode now</h2>
       <p class="field-hint">
-        Builds one straight away from current news, weather, the calendar, and any queued
-        messages, without waiting for {{ schedule_label }}.
+        Builds one straight away from current news, weather, the calendar, and any
+        queued messages, instead of waiting for the morning.
       </p>
     </div>
     <form method="post" action="/generate" id="generate-form">
@@ -188,7 +193,7 @@
     {% endif %}
   </section>
 
-  <aside class="card-stack">
+  <aside>
     <section class="card" id="feed">
       <h2 class="mb-4 text-base">Links</h2>
       {{ copy_url(
@@ -203,14 +208,6 @@
         'Always plays the newest episode. No token, so anyone who can reach this server can open it.',
         'latest episode URL'
       ) }}
-    </section>
-
-    <section class="card">
-      <h2 class="mb-1 text-base">Daily build</h2>
-      <p class="field-hint">
-        A new episode arrives at <strong>{{ schedule_label }}</strong>{% if location_label %} for {{ location_label }}{% endif %}.
-        <a href="/settings#schedule">Change it</a>.
-      </p>
     </section>
   </aside>
 </div>

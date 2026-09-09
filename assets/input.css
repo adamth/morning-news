@@ -164,6 +164,15 @@
     @apply mt-2 max-w-prose text-base text-muted text-pretty;
   }
 
+  /* A standing fact about the show, too small to earn a card of its own. */
+  .page-note {
+    @apply mb-4 text-sm text-muted;
+  }
+
+  .page-note strong {
+    @apply font-semibold text-ink;
+  }
+
   .card {
     @apply rounded-2xl border-[1.5px] border-border/70 bg-surface p-5 sm:p-6;
   }
