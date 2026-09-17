@@ -425,7 +425,7 @@ class TestCalendarCoverage:
         assert len(script_calls) == 2
         retry_prompt = script_calls[-1]["user"]
         assert "EVENTS YOUR LAST DRAFT LEFT OUT" in retry_prompt
-        assert "Standup at 9:00 AM" in retry_prompt
+        assert "Standup at nine o'clock in the morning" in retry_prompt
         assert "Dentist" not in retry_prompt.split("EVENTS YOUR LAST DRAFT LEFT OUT")[1]
 
     def test_retries_at_most_once(self, db_session, settings, mock_pipeline_env, mock_llm, make_episode_json, monkeypatch):

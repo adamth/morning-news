@@ -16,6 +16,7 @@ from .llm_providers import (
     LlmProviderId,
     resolve_provider_config,
 )
+from .spoken_time import spell_clock_times
 
 logger = logging.getLogger(__name__)
 
@@ -277,11 +278,13 @@ def _build_generation_prompt(
 
     message_block = "\n".join(f"[message {item.id}] {item.text}" for item in messages) or "(none)"
     events_block = (
-        "\n".join(f"[event {index}] {event}" for index, event in enumerate(events))
+        "\n".join(
+            f"[event {index}] {spell_clock_times(event)}" for index, event in enumerate(events)
+        )
         or "(none today)"
     )
     if missed_events:
-        missed_list = "\n".join(f"- {event}" for event in missed_events)
+        missed_list = "\n".join(f"- {spell_clock_times(event)}" for event in missed_events)
         missed_events_block = (
             "\n\nEVENTS YOUR LAST DRAFT LEFT OUT — that episode was rejected for omitting them. "
             "They are not optional and not too small to say out loud. Work every one into the "
@@ -394,6 +397,10 @@ PUNCTUATION (required — TTS uses it for pacing and intonation):
 - End every sentence with a period, question mark, or exclamation mark.
 - Use commas for natural pauses: between clauses, in lists, and after brief transitions.
 - Use apostrophes in contractions (it's, here's, we're).
+- Write every clock time as words, the way it is said aloud: "eight o'clock in the morning" \
+not "8:00 AM", "nine thirty" not "9:30", "eight oh five" not "8:05", "twelve noon" not "12:00 PM". \
+Never leave a time written with digits and a colon in the script — read aloud, "8:00" becomes \
+"eight oh".
 - Dates use a comma before the year (July 2, 2026), matching the date given above.
 - Do not omit punctuation or run sentences together without commas or periods.
 
@@ -578,9 +585,10 @@ def generate_episode(
 
 
 def prepare_spoken_text(text: str) -> str:
-    """Normalize script text for TTS — no line breaks or literal escape sequences."""
+    """Normalize script text for TTS — spoken clock times, no line breaks or escape sequences."""
 
-    cleaned = text.replace("\\n", " ").replace("\\r", " ").replace("\\t", " ")
+    cleaned = spell_clock_times(text)
+    cleaned = cleaned.replace("\\n", " ").replace("\\r", " ").replace("\\t", " ")
     cleaned = re.sub(r"[\r\n\t\f\v]+", " ", cleaned)
     cleaned = re.sub(r" {2,}", " ", cleaned)
     return cleaned.strip()

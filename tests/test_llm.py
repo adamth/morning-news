@@ -115,6 +115,11 @@ class TestParseEpisodeContent:
         assert prepare_spoken_text("Multiple   spaces") == "Multiple spaces"
         assert prepare_spoken_text("\\nLiteral\\n") == "Literal"
 
+    def test_prepare_spoken_text_spells_clock_times(self):
+        assert prepare_spoken_text("Doors at 8:00 AM.") == (
+            "Doors at eight o'clock in the morning."
+        )
+
     def test_prepare_spoken_text_strips_leading_trailing(self):
         assert prepare_spoken_text("  hello  ") == "hello"
 
@@ -347,8 +352,8 @@ class TestBuildGenerationPrompt:
 
         prompt = _build_generation_prompt(**kwargs)
 
-        assert "[event 0] Work: Standup at 9:00 AM" in prompt
-        assert "[event 1] Dentist at 2:30 PM" in prompt
+        assert "[event 0] Work: Standup at nine o'clock in the morning" in prompt
+        assert "[event 1] Dentist at two thirty in the afternoon" in prompt
         assert "MUST be mentioned" in prompt
         assert "used_event_ids" in prompt
         assert "not to summarise" in prompt
@@ -361,7 +366,7 @@ class TestBuildGenerationPrompt:
         prompt = _build_generation_prompt(**kwargs)
 
         assert "EVENTS YOUR LAST DRAFT LEFT OUT" in prompt
-        assert prompt.count("Work: Standup at 9:00 AM") == 2
+        assert prompt.count("Work: Standup at nine o'clock in the morning") == 2
 
     def test_calendar_prompt_omits_the_retry_block_on_a_first_draft(self):
         prompt = _build_generation_prompt(**self._base_kwargs())
