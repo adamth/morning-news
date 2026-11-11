@@ -158,6 +158,29 @@ class TestRegularEpisodeGeneration:
         assert episode.status == EpisodeStatus.ready
 
 
+class TestInterestSources:
+    def _configure(self, db_session, settings, interest_topics):
+        settings.admin1 = "Victoria"
+        settings.country = "Australia"
+        settings.interest_topics = interest_topics
+        db_session.add(settings)
+        db_session.commit()
+
+    def test_no_interest_topics_adds_no_interest_sources(self, db_session, settings):
+        self._configure(db_session, settings, "")
+        sources = pipeline_module._news_sources(db_session, settings)
+        assert sources
+        assert not any(source.interest for source in sources)
+
+    def test_interest_sources_come_only_from_the_listeners_topics(self, db_session, settings):
+        self._configure(db_session, settings, "video games, artificial intelligence")
+        sources = pipeline_module._news_sources(db_session, settings)
+        assert [s.name for s in sources if s.interest] == [
+            "Interest (video games)",
+            "Interest (artificial intelligence)",
+        ]
+
+
 # ---------------------------------------------------------------------------
 # Special report episode (books, films, true story, deep dive, reflection)
 # ---------------------------------------------------------------------------

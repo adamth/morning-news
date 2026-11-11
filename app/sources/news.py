@@ -47,7 +47,7 @@ _PRIORITY_MAX_AGE_HOURS = 48
 # A feed-embedded body at least this long is treated as the full article,
 # so no web extraction is attempted for it.
 _MIN_FEED_BODY_CHARS = 400
-# Interest topics are slow-day filler, never the point of the show. Cap each
+# Interest topics are a side dish, never the point of the show. Cap each
 # topic separately so a high-volume one (AI) cannot squeeze out a quiet one
 # (the local games industry), then cap the pool they share.
 _INTEREST_PER_TOPIC = 2
@@ -72,7 +72,7 @@ class Article:
     # towns by name — weak locality evidence in its own right, and the only
     # evidence available for a Google News entry before extraction.
     place_scoped: bool = False
-    # From an interest-topic feed, so it may only fill a thin news day.
+    # From one of the listener's interest topics rather than a local feed.
     interest: bool = False
 
     @property
@@ -91,7 +91,7 @@ class NewsSource:
     priority: bool = False
     # Built from a home-place search rather than a broad region query.
     place_scoped: bool = False
-    # Built from an interest topic: eligible only as slow-news-day filler.
+    # Built from one of the listener's interest topics.
     interest: bool = False
 
 
@@ -147,7 +147,7 @@ def build_interest_sources(
 
     Each topic gets its own feed so the per-topic cap in `gather_articles` can
     keep them balanced. A three-day window suits the cadence: niche topics
-    publish a couple of stories a week, and stale filler is worse than none.
+    publish a couple of stories a week, and a stale story is worse than none.
     """
 
     return [

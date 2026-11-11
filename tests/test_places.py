@@ -320,7 +320,7 @@ class TestPlaceScopedFallbackScore:
 
 
 class TestInterestTopics:
-    """Interest stories are slow-day filler: capped, balanced across topics,
+    """Interest stories join every episode: capped, balanced across topics,
     and never able to displace a local story."""
 
     def _sources(self, topics):
@@ -389,6 +389,56 @@ class TestInterestTopics:
             home_places=RANGES,
         )
         assert selected.interest is True
+
+
+    def _gather_mixed(self, monkeypatch, *, local, filler, max_articles=25):
+        def fake_collect(sources, _max):
+            if not sources:
+                return []
+            return list(filler) if sources[0].interest else list(local)
+
+        monkeypatch.setattr(news, "_collect_from_sources", fake_collect)
+        return news.gather_articles(
+            [news.NewsSource(url="https://paper.test/feed/", name="Star Mail")]
+            + self._sources(["games"]),
+            extract=False,
+            max_articles=max_articles,
+        )
+
+    def _filler(self, *titles):
+        articles = [_article(title, source_name="Interest (games)") for title in titles]
+        for article in articles:
+            article.interest = True
+        return articles
+
+    def test_interest_stories_are_selected_when_local_news_fills_the_cap(self, monkeypatch):
+        local = [_article(f"Monbulk story {n}", source_name="Star Mail") for n in range(20)]
+        selected = self._gather_mixed(
+            monkeypatch,
+            local=local,
+            filler=self._filler("Studio ships a game", "Games festival opens"),
+            max_articles=10,
+        )
+        assert [a.title for a in selected[:10]] == [f"Monbulk story {n}" for n in range(10)]
+        assert [a.title for a in selected[10:]] == ["Studio ships a game", "Games festival opens"]
+
+    def test_interest_stories_are_selected_when_there_is_no_local_news(self, monkeypatch):
+        selected = self._gather_mixed(
+            monkeypatch, local=[], filler=self._filler("Studio ships a game")
+        )
+        assert [(a.title, a.interest) for a in selected] == [("Studio ships a game", True)]
+
+    def test_interest_story_already_aired_is_not_repeated(self, monkeypatch):
+        (aired,) = self._filler("Studio ships a game")
+        monkeypatch.setattr(
+            news,
+            "_collect_from_sources",
+            lambda sources, _m: [aired] if sources and sources[0].interest else [],
+        )
+        selected = news.gather_articles(
+            self._sources(["games"]), extract=False, exclude_urls={aired.url}
+        )
+        assert selected == []
 
 
 class TestBalanceBySource:
