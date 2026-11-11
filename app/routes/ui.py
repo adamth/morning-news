@@ -687,7 +687,7 @@ def save_interest_topics(
     settings.updated_at = utcnow()
     session.add(settings)
     session.commit()
-    return _settings_redirect("interests", msg="Slow-day interests saved.")
+    return _settings_redirect("interests", msg="Interests saved.")
 
 
 @router.post("/calendars")

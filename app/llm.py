@@ -262,7 +262,7 @@ def _build_generation_prompt(
         else:
             tag = ""
         if item.interest:
-            return tag + " [INTEREST: slow-day filler only]"
+            return tag + " [INTEREST: listener's chosen topic]"
         if home_places:
             if item.local_places:
                 tag += f" [LOCAL: mentions {', '.join(item.local_places)}]"
@@ -314,15 +314,14 @@ episode is better than one padded with places the listener doesn't care about.""
         geography_block = ""
 
     if any(item.interest for item in articles):
-        interest_block = """INTEREST TOPICS (filler — only for a thin news day):
-Some candidates are tagged [INTEREST: slow-day filler only]. These are subjects the
-listener enjoys hearing about occasionally; they are not local news and not the point
-of the show.
-- Use them ONLY when you have fewer than three worthwhile local stories.
-- Include at most ONE, and never lead the news section with it.
+        interest_block = """INTEREST TOPICS (one story every episode):
+Some candidates are tagged [INTEREST: listener's chosen topic]. These are subjects the
+listener asked to hear about; they are not local news and not the point of the show.
+- Include exactly ONE of them in every news section, whether local news is thin or plentiful.
+Pick the most interesting one.
+- Place it after the local stories; never lead the news section with it.
 - Introduce it as the aside it is ("away from the hills…", "in tech news…"), so it
-never reads as something happening locally.
-- When local news is plentiful, ignore them completely."""
+never reads as something happening locally."""
     else:
         interest_block = ""
     reaction_block = market_reaction or "(none)"

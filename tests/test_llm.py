@@ -250,11 +250,11 @@ class TestBuildGenerationPrompt:
         assert "priority feed: Star Mail" in prompt
         assert "[LOCAL: mentions Sassafras]" in prompt
 
-    def test_interest_block_is_omitted_when_no_filler_is_offered(self):
+    def test_interest_block_is_omitted_when_no_interest_story_is_offered(self):
         prompt = _build_generation_prompt(**self._base_kwargs())
         assert "INTEREST TOPICS" not in prompt
 
-    def test_interest_block_appears_and_constrains_usage(self):
+    def test_interest_block_asks_for_one_interest_story_alongside_local_news(self):
         kwargs = self._base_kwargs()
         kwargs["articles"] = [
             ArticleInput(id=0, title="Local story", publisher="Star Mail", content="Body."),
@@ -268,8 +268,10 @@ class TestBuildGenerationPrompt:
         ]
         prompt = _build_generation_prompt(**kwargs)
         assert "INTEREST TOPICS" in prompt
-        assert "[INTEREST: slow-day filler only]" in prompt
-        assert "at most ONE" in prompt
+        assert "[INTEREST: listener's chosen topic]" in prompt
+        assert "exactly ONE of them in every news section" in prompt
+        assert "never lead the news section with it" in prompt
+        assert "fewer than three" not in prompt
 
     def test_interest_tag_takes_precedence_over_the_not_local_tag(self):
         # An interest story is not a local story that failed a test, and must
@@ -280,7 +282,7 @@ class TestBuildGenerationPrompt:
             ArticleInput(id=0, title="AI model released", publisher="ABC", content="B.", interest=True),
         ]
         prompt = _build_generation_prompt(**kwargs)
-        assert "[INTEREST: slow-day filler only]" in prompt
+        assert "[INTEREST: listener's chosen topic]" in prompt
         assert "NOT LOCAL: mentions no home place" not in prompt
 
     def test_regular_episode_prompt_builds_without_error(self):
